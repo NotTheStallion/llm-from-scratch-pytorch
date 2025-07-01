@@ -45,5 +45,8 @@ if __name__ == "__main__":
     model_dir = Path(f"checkpoints/{model_name}")
     model, model_name = from_pretrained(model_dir, strict=True)
     print(f"Loaded model: {model_name}")
-    print(f"Model args: {model.model_args}")
-    print(f"Tokenizer vocab size: {len(model.tokenizer)}")
+    print(f"Model args: {model.args}")
+    
+    print("Model parameter names:")
+    for name, _ in model.named_parameters():
+        print(name)
