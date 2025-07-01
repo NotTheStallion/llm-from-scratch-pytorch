@@ -3,8 +3,8 @@ from torch import nn
 from transformers import AutoTokenizer
 from pathlib import Path
 
-from causal_model import CausalLM
-from utils import get_state_dict_convert_fun, get_model_args
+from src.causal_model import CausalLM
+from src.utils import get_state_dict_convert_fun, get_model_args
 
 def from_pretrained(
         model_dir: Path,
