@@ -34,7 +34,7 @@ if __name__ == "__main__":
     model_dir = Path(f"checkpoints/{model_name}")
     model, model_name, model_args = from_pretrained(model_dir, strict=True)
     tokenizer = AutoTokenizer.from_pretrained(
-            str(model_dir), trust_remote_code=True
+            "Qwen/Qwen1.5-0.5B-Chat", trust_remote_code=True
         )
 
     if model_args.n_vocab != len(tokenizer):
@@ -50,26 +50,39 @@ if __name__ == "__main__":
     # for name, _ in model.named_parameters():
     #     print(name)
     
-    prompt = """role: system\n content: You are a helpful assistant.\n
-    role: user\n content: What is the capital of France?
-    """
-    inputs = tokenizer(prompt, return_tensors="pt")
-    input_ids = inputs["input_ids"]
-    print(f"Input IDs shape: {input_ids.shape}")
+    chat_template = tokenizer.chat_template
+    # print(f"Chat template: {chat_template}")
+    
+    prompt = "What is the capital of France?"
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": prompt}
+    ]
+    prompt = tokenizer.apply_chat_template(messages)
+    
+    print("="*20)
+    print(f"Prompt: {tokenizer.decode(prompt)}")
+    
+    # inputs = tokenizer(prompt, return_tensors="pt")
+    # input_ids = inputs["input_ids"]
+    # print(f"Input IDs shape: {input_ids.shape}")
     
     num_generations = 1  # Number of generations
     max_length = 50  # Maximum length of generated text
     
+    
+    tokenizer.bos_token_id = 151644
     print(f"bos token id: {tokenizer.bos_token_id}")
     print(f"eos token id: {tokenizer.eos_token_id}")
     
-    print(f"Input IDs: {input_ids}")
+    # print(f"Input IDs: {input_ids}")
 
     with torch.no_grad():
         for i in range(num_generations):
             # Manually implement generation using the model's forward method
-            generated_ids = input_ids.clone()
+            generated_ids = torch.tensor(prompt.copy()).unsqueeze(0)  # Add batch dimension [1, L]
             for _ in range(max_length):
+                print(generated_ids)
                 outputs = model.forward(generated_ids)
                 print(f"Outputs shape: {outputs.shape}")  # [B, L, n_vocab]
                 next_token_logits = outputs[:, -1, :]  # Get logits for the last token
@@ -80,8 +93,8 @@ if __name__ == "__main__":
                 print(f"Generated IDs shape: {generated_ids.shape}")  # [B, L]
 
                 # Stop generation if the end-of-sequence token is produced
-                # if next_token.item() == tokenizer.eos_token_id:
-                #     break
+                if next_token.item() == tokenizer.eos_token_id:
+                    break
             
-            generated_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+            generated_text = tokenizer.decode(generated_ids[0])
             print(f"Generated text {i + 1}: {generated_text}")
