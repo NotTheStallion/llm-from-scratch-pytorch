@@ -56,6 +56,10 @@ def main_test():
             hf_param = hf_model.get_parameter(name)
             if not torch.allclose(param.float(), hf_param.float(), atol=1e-200, rtol=1e-200):
                 print(f"Parameter '{name}' values do not match between custom model and Hugging Face model.")
+        else:
+            lm_head_weight = hf_model.get_parameter("model.embed_tokens.weight")
+            if not torch.allclose(param.float(), lm_head_weight.float(), atol=1e-200, rtol=1e-200):
+                print(f"Parameter '{name}' values do not match between custom model and Hugging Face model.")
     
 
 
