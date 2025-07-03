@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.modules.normalization import RMSNorm
 
 import sys
 from typing import Tuple
@@ -12,11 +13,6 @@ from attention import scaled_dot_product_attention_gqa
 from rope import RoPE
 from model_args import ModelArgs
 
-
-def make_norm(args: ModelArgs) -> nn.Module:
-    return RMSNorm(args)
-
-
 class EncoderBlock(nn.Module):
     def __init__(self, args: ModelArgs):
         super().__init__()
@@ -24,10 +20,11 @@ class EncoderBlock(nn.Module):
 
         self.self_attn = SelfAttention(args)
         self.mlp = FeedForward(args)
-        self.input_layernorm = make_norm(args)
-        self.post_attention_layernorm = make_norm(args)
+        self.input_layernorm = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
+        self.post_attention_layernorm = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
 
     def forward(self, x: torch.Tensor, start_index: int) -> torch.Tensor:
+        # [B, L, D] --> [B, L, D]
         x = x + self.self_attn(self.input_layernorm(x), start_index)
         x = x + self.mlp(self.post_attention_layernorm(x))
         return x
@@ -109,6 +106,9 @@ class RMSNorm(nn.Module):
 
         self.weight = nn.Parameter(torch.ones(self.dim))
 
+        # torch.nn.modules.normalization.RMSNorm(
+        # )
+
     def _norm(self, x):
         return x * torch.rsqrt(torch.mean(x**2, dim=-1, keepdim=True) + self.eps)
 
@@ -119,51 +119,6 @@ class RMSNorm(nn.Module):
         return self.weight * x
 
 
-class KVCache(nn.Module):
-    def __init__(
-        self, max_batch_size: int, max_seq_len: int, n_kv_heads: int, d_head: int
-    ):
-        super().__init__()
-        self.max_batch_size, self.max_seq_len = max_batch_size, max_seq_len
-        self.n_kv_heads, self.d_head = n_kv_heads, d_head
-
-        kv_cache_shape = torch.Size([max_batch_size, max_seq_len, n_kv_heads, d_head])
-        k_cache = torch.zeros(kv_cache_shape)
-        v_cache = torch.zeros(kv_cache_shape)
-        self.register_buffer("k_cache", k_cache, persistent=False)
-        self.register_buffer("v_cache", v_cache, persistent=False)
-
-        self.batch_size = 0  # actual batch size
-        self.seq_len = 0  # seq length have been cached
-
-    def reset(self):
-        self.batch_size = 0
-        self.seq_len = 0
-
-    def forward(
-        self, k: torch.Tensor = None, v: torch.Tensor = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        if k is not None and v is not None:
-            return self._write(k, v)
-        assert k is None and v is None
-        assert self.batch_size > 0 and self.seq_len > 0, "nothing has been cached"
-        return self._read()
-
-    def _write(self, k: torch.Tensor, v: torch.Tensor) -> None:
-        assert k.ndim == 4 and k.shape == v.shape
-        if self.batch_size == 0:
-            self.batch_size = k.shape[0]
-        assert k.shape[2] == self.n_kv_heads and k.shape[3] == self.d_head
-        assert self.seq_len + k.shape[1] <= self.max_seq_len
-
-        self.k_cache[: self.batch_size, self.seq_len : self.seq_len + k.shape[1]] = k
-        self.v_cache[: self.batch_size, self.seq_len : self.seq_len + k.shape[1]] = v
-        self.seq_len += k.shape[1]
-
-    def _read(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        k = self.k_cache[: self.batch_size, : self.seq_len]
-        v = self.v_cache[: self.batch_size, : self.seq_len]
-        return k, v
 
 
 if __name__ == "__main__":
@@ -178,15 +133,17 @@ if __name__ == "__main__":
         max_batch_size=1,
         max_seq_len=256,
     )
-    rope = RoPE(model_args)
-    rope(torch.randn(1, 4, 8, 64))
+    # rope = RoPE(model_args)
+    # rope(torch.randn(1, 4, 8, 64))
 
-    kvcache = KVCache(max_batch_size=1, max_seq_len=128, n_kv_heads=8, d_head=64)
-    kvcache(torch.randn(1, 4, 8, 64), torch.randn(1, 4, 8, 64))
-    o1, o2 = kvcache()
-    assert o1.shape == torch.Size([1, 4, 8, 64])
-    assert o2.shape == torch.Size([1, 4, 8, 64])
-    kvcache(torch.randn(1, 3, 8, 64), torch.randn(1, 3, 8, 64))
-    o1, o2 = kvcache()
-    assert o1.shape == torch.Size([1, 7, 8, 64])
-    assert o2.shape == torch.Size([1, 7, 8, 64])
+
+    x = torch.rand(1, 60, 64)
+    
+    x_norm = RMSNorm(model_args)
+    print(x_norm(x).shape)
+    
+    x_norm_torch = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
+    print(x_norm_torch(x).shape)
+    
+    # test equality
+    assert torch.allclose(x_norm(x), x_norm_torch(x), atol=1e-6), "RMSNorm implementation does not match torch.nn.RMSNorm"
