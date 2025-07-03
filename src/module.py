@@ -47,19 +47,10 @@ class SelfAttention(nn.Module):
         self.v_proj = nn.Linear(args.dim, self.n_kv_heads * self.d_head, bias=True)
         self.o_proj = nn.Linear(self.n_heads * self.d_head, args.dim, bias=False)
 
-        self.kv_cache = KVCache(
-            max_batch_size=args.max_batch_size,
-            max_seq_len=args.max_seq_len,
-            n_kv_heads=self.n_kv_heads,
-            d_head=self.d_head,
-        )
         self.rope = RoPE(args)
 
     def forward(self, x: torch.Tensor, start_index: int) -> torch.Tensor:
         batch_size, seq_len, _ = x.shape
-
-        if start_index == 0:
-            self.kv_cache.reset()
 
         # [B, L, D] --> [B, L, D]
         q: torch.Tensor = self.q_proj(x)
@@ -75,11 +66,6 @@ class SelfAttention(nn.Module):
         # apply rotary position embedding
         q = self.rope(q, start_index)
         k = self.rope(k, start_index)
-
-        # write new key and new value into the kv cache
-        self.kv_cache(k, v)
-        # read out all cached key and value --> [B, L_kv, n_kv_heads, d_head]
-        k, v = self.kv_cache()
 
         # [B, L, n_heads, d_head] --> [B, n_heads, L, d_head]
         q = q.permute(0, 2, 1, 3).contiguous()
