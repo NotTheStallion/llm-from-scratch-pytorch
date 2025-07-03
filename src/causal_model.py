@@ -10,7 +10,7 @@ from collections import OrderedDict
 sys.path.append(str(Path(__file__).parent))
 
 from model_args import ModelArgs
-from module import EncoderBlock, make_norm
+from module import EncoderBlock
 from utils import load_model_state_dict
 
 
@@ -39,7 +39,7 @@ class CausalLM(nn.Module):
                     "layers": nn.ModuleList(
                         [EncoderBlock(args) for _ in range(self.n_layers)]
                     ),
-                    "norm": make_norm(args),
+                    "norm": nn.RMSNorm(model_args.dim, eps=model_args.norm_eps),
                 }
             )
         )
