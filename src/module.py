@@ -98,28 +98,6 @@ class FeedForward(nn.Module):
         return self.down_proj(x1 * x2)
 
 
-class RMSNorm(nn.Module):
-    def __init__(self, args: ModelArgs):
-        super().__init__()
-        self.llm_type = args.llm_type
-        self.dim, self.eps = args.dim, args.norm_eps
-
-        self.weight = nn.Parameter(torch.ones(self.dim))
-
-        # torch.nn.modules.normalization.RMSNorm(
-        # )
-
-    def _norm(self, x):
-        return x * torch.rsqrt(torch.mean(x**2, dim=-1, keepdim=True) + self.eps)
-
-    def forward(self, x) -> torch.Tensor:
-        # [B, L, D] --> [B, L, D]
-        x = self._norm(x.float()).type_as(x)
-        # [D] * [B, L, D] --> [B, L, D], broadcasting
-        return self.weight * x
-
-
-
 
 if __name__ == "__main__":
     model_args = ModelArgs(
@@ -139,11 +117,5 @@ if __name__ == "__main__":
 
     x = torch.rand(1, 60, 64)
     
-    x_norm = RMSNorm(model_args)
-    print(x_norm(x).shape)
-    
     x_norm_torch = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
     print(x_norm_torch(x).shape)
-    
-    # test equality
-    assert torch.allclose(x_norm(x), x_norm_torch(x), atol=1e-6), "RMSNorm implementation does not match torch.nn.RMSNorm"
