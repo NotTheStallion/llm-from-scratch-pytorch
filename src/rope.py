@@ -10,12 +10,12 @@ from model_args import ModelArgs
 import numpy as np
 
 def positional_encoding(L, d, n=10000):
-    pe = np.zeros((L, d))
+    pe = torch.zeros((L, d))
     for pos in range(L):
-        for i in range(d//2):
-            denominator = np.power(n, 2*i/d)
-            pe[pos, 2*i] = np.sin(pos/denominator)
-            pe[pos, 2*i+1] = np.cos(pos/denominator)
+        for i in range(d // 2):
+            denominator = torch.pow(torch.tensor(n, dtype=torch.float32), 2 * i / d)
+            pe[pos, 2 * i] = torch.sin(pos / denominator)
+            pe[pos, 2 * i + 1] = torch.cos(pos / denominator)
     return pe
 
 

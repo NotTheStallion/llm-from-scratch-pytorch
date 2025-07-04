@@ -43,13 +43,14 @@ class SelfAttention(nn.Module):
         self.k_proj = nn.Linear(args.dim, self.n_kv_heads * self.d_head, bias=True)
         self.v_proj = nn.Linear(args.dim, self.n_kv_heads * self.d_head, bias=True)
         self.o_proj = nn.Linear(self.n_heads * self.d_head, args.dim, bias=False)
+        
+        self.rope = RoPE(args)
 
     def forward(self, x: torch.Tensor, start_index: int) -> torch.Tensor:
         # x: [B, L, D]
         B, L, D = x.shape
         pe = positional_encoding(L, D)
-        x += pe
-        
+        x += pe.unsqueeze(0)
 
         # [B, L, D] --> [B, L, D]
         q: torch.Tensor = self.q_proj(x)
@@ -67,6 +68,10 @@ class SelfAttention(nn.Module):
         # [B, L_kv, n_kv_heads, d_head] --> [B, n_kv_heads, L_kv, d_head]
         k = k.permute(0, 2, 1, 3).contiguous()
         v = v.permute(0, 2, 1, 3).contiguous()
+        
+        # RoPE
+        # q = self.rope(q, start_index)
+        # k = self.rope(k, start_index)
 
         # --> [B, n_heads, L, d_head], if query seq length == 1,
         # set is_causal to False to avoid attention mask construction to save computation
