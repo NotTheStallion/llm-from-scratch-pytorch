@@ -7,6 +7,16 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 
 from model_args import ModelArgs
+import numpy as np
+
+def positional_encoding(L, d, n=10000):
+    pe = np.zeros((L, d))
+    for pos in range(L):
+        for i in range(d//2):
+            denominator = np.power(n, 2*i/d)
+            pe[pos, 2*i] = np.sin(pos/denominator)
+            pe[pos, 2*i+1] = np.cos(pos/denominator)
+    return pe
 
 
 class RoPE(nn.Module):
@@ -150,7 +160,14 @@ if __name__ == "__main__":
     rope = RoPE(args)
     rope2 = RoPEref(args)
 
+    # [B, L, H, D]
     x = torch.randn(1, 10, 4, 128 // 4)
+    
+    y = torch.randn(1, 15, 128)
+    
+    pe = positional_encoding(15, 128)
+    print(pe.shape)
+    
     y1, y3 = rope(x, 0), rope(x, 4)
     y2, y4 = rope2(x, 0), rope2(x, 4)
 

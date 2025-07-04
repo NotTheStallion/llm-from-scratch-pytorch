@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 
 from attention import scaled_dot_product_attention
-from rope import RoPE
+from rope import RoPE, positional_encoding
 from model_args import ModelArgs
 
 class EncoderBlock(nn.Module):
@@ -44,10 +44,12 @@ class SelfAttention(nn.Module):
         self.v_proj = nn.Linear(args.dim, self.n_kv_heads * self.d_head, bias=True)
         self.o_proj = nn.Linear(self.n_heads * self.d_head, args.dim, bias=False)
 
-        self.rope = RoPE(args)
-
     def forward(self, x: torch.Tensor, start_index: int) -> torch.Tensor:
-        batch_size, seq_len, _ = x.shape
+        # x: [B, L, D]
+        B, L, D = x.shape
+        pe = positional_encoding(L, D)
+        x += pe
+        
 
         # [B, L, D] --> [B, L, D]
         q: torch.Tensor = self.q_proj(x)
@@ -56,13 +58,9 @@ class SelfAttention(nn.Module):
         v: torch.Tensor = self.v_proj(x)
 
         # [B, L, D] --> [B, L, n_heads, d_head]
-        q = q.view(batch_size, seq_len, self.n_heads, self.d_head)
-        k = k.view(batch_size, seq_len, self.n_kv_heads, self.d_head)
-        v = v.view(batch_size, seq_len, self.n_kv_heads, self.d_head)
-
-        # apply rotary position embedding
-        q = self.rope(q, start_index)
-        k = self.rope(k, start_index)
+        q = q.view(B, L, self.n_heads, self.d_head)
+        k = k.view(B, L, self.n_kv_heads, self.d_head)
+        v = v.view(B, L, self.n_kv_heads, self.d_head)
 
         # [B, L, n_heads, d_head] --> [B, n_heads, L, d_head]
         q = q.permute(0, 2, 1, 3).contiguous()
@@ -75,7 +73,7 @@ class SelfAttention(nn.Module):
         # output = scaled_dot_product_attention_gqa(q, k, v, is_causal=q.shape[-2] > 1)
         output = scaled_dot_product_attention(q, k, v, is_causal=True)
         # [B, n_heads, L, d_head] --> [B, L, n_heads, d_head] --> [B, L, D]
-        output = output.permute(0, 2, 1, 3).reshape(batch_size, seq_len, -1)
+        output = output.permute(0, 2, 1, 3).reshape(B, L, -1)
 
         # [B, L, D] --> [B, L, D]
         return self.o_proj(output)
