@@ -5,7 +5,7 @@ from pathlib import Path
 
 from src.causal_model import CausalLM
 from src.model_args import ModelArgs
-from main import from_pretrained
+from main import load_model
 from tqdm import tqdm
 
 
@@ -15,7 +15,7 @@ from tqdm import tqdm
 def main_test():
     model_name = "Qwen1.5-0.5B-Chat"
     model_dir = Path(f"checkpoints/{model_name}")
-    model, model_name, model_args = from_pretrained(model_dir, strict=True)
+    model, model_name, model_args = load_model(model_dir, strict=True)
     
     # Load the model using Hugging Face
     hf_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen1.5-0.5B-Chat", torch_dtype="auto", device_map="cpu", trust_remote_code=True, cache_dir="/beegfs/mkherraz")

@@ -7,7 +7,7 @@ from src.causal_model import CausalLM
 from src.utils import get_model_args
 from src.model_args import ModelArgs
 
-def from_pretrained(
+def load_model(
         model_dir: Path,
         strict=True,
     ) -> tuple[CausalLM, str, ModelArgs]:
@@ -31,7 +31,7 @@ def from_pretrained(
 if __name__ == "__main__":
     model_name = "Qwen1.5-0.5B-Chat"
     model_dir = Path(f"checkpoints/{model_name}")
-    model, model_name, model_args = from_pretrained(model_dir, strict=True)
+    model, model_name, model_args = load_model(model_dir, strict=True)
     tokenizer = AutoTokenizer.from_pretrained(
             "Qwen/Qwen1.5-0.5B-Chat", trust_remote_code=True
         )
