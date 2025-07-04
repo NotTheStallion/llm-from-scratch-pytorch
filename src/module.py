@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent))
 
-from attention import scaled_dot_product_attention_gqa
+from attention import scaled_dot_product_attention
 from rope import RoPE
 from model_args import ModelArgs
 
@@ -20,8 +20,8 @@ class EncoderBlock(nn.Module):
 
         self.self_attn = SelfAttention(args)
         self.mlp = FeedForward(args)
-        self.input_layernorm = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
-        self.post_attention_layernorm = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
+        self.input_layernorm = nn.RMSNorm(args.dim, eps=args.norm_eps)
+        self.post_attention_layernorm = nn.RMSNorm(args.dim, eps=args.norm_eps)
 
     def forward(self, x: torch.Tensor, start_index: int) -> torch.Tensor:
         # [B, L, D] --> [B, L, D]
@@ -72,7 +72,8 @@ class SelfAttention(nn.Module):
 
         # --> [B, n_heads, L, d_head], if query seq length == 1,
         # set is_causal to False to avoid attention mask construction to save computation
-        output = scaled_dot_product_attention_gqa(q, k, v, is_causal=q.shape[-2] > 1)
+        # output = scaled_dot_product_attention_gqa(q, k, v, is_causal=q.shape[-2] > 1)
+        output = scaled_dot_product_attention(q, k, v, is_causal=True)
         # [B, n_heads, L, d_head] --> [B, L, n_heads, d_head] --> [B, L, D]
         output = output.permute(0, 2, 1, 3).reshape(batch_size, seq_len, -1)
 

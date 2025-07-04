@@ -4,7 +4,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from pathlib import Path
 
 from src.causal_model import CausalLM
-from src.utils import get_state_dict_convert_fun, get_model_args
 from src.model_args import ModelArgs
 from main import from_pretrained
 from tqdm import tqdm

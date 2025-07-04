@@ -4,7 +4,7 @@ from transformers import AutoTokenizer
 from pathlib import Path
 
 from src.causal_model import CausalLM
-from src.utils import get_state_dict_convert_fun, get_model_args
+from src.utils import get_model_args
 from src.model_args import ModelArgs
 
 def from_pretrained(
@@ -21,8 +21,7 @@ def from_pretrained(
         model = CausalLM.from_pretrained(
             model_dir,
             model_args,
-            strict,
-            get_state_dict_convert_fun(model_name),
+            strict
         )
         model.eval()
         return model, model_name, model_args
@@ -53,7 +52,7 @@ if __name__ == "__main__":
     chat_template = tokenizer.chat_template
     # print(f"Chat template: {chat_template}")
     
-    prompt = "What is the capital of France?"
+    prompt = "What is a dog ?"
     messages = [
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": prompt}

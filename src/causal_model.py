@@ -39,20 +39,13 @@ class CausalLM(nn.Module):
                     "layers": nn.ModuleList(
                         [EncoderBlock(args) for _ in range(self.n_layers)]
                     ),
-                    "norm": nn.RMSNorm(model_args.dim, eps=model_args.norm_eps),
+                    "norm": nn.RMSNorm(args.dim, eps=args.norm_eps),
                 }
             )
         )
         self.lm_head = nn.Linear(self.dim, self.n_vocab, bias=False)
 
         self.start_index = 0
-
-    def reset(self):
-        self.start_index = 0
-        return self
-
-    def set_start_index(self, start_index: int):
-        self.start_index = start_index
 
     def forward(self, tokens: torch.Tensor) -> torch.Tensor:
         assert tokens.ndim <= 2
@@ -74,12 +67,9 @@ class CausalLM(nn.Module):
     def from_pretrained(
         model_dir: Path | List[Path],
         model_args: ModelArgs,
-        strict=True,
-        convert_state_dict_fun: Callable = None,
+        strict=True
     ) -> "CausalLM":
         state_dict: OrderedDict = load_model_state_dict(model_dir)
-        if convert_state_dict_fun is not None:
-            state_dict = convert_state_dict_fun(state_dict)
         model = CausalLM(model_args)
         model.load_state_dict(state_dict, strict=strict)
         return model
