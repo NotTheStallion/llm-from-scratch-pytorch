@@ -49,8 +49,8 @@ class SelfAttention(nn.Module):
     def forward(self, x: torch.Tensor, start_index: int) -> torch.Tensor:
         # x: [B, L, D]
         B, L, D = x.shape
-        pe = positional_encoding(L, D)
-        x += pe.unsqueeze(0)
+        # pe = positional_encoding(L, D)
+        # x += pe.unsqueeze(0)
 
         # [B, L, D] --> [B, L, D]
         q: torch.Tensor = self.q_proj(x)
@@ -70,8 +70,8 @@ class SelfAttention(nn.Module):
         v = v.permute(0, 2, 1, 3).contiguous()
         
         # RoPE
-        # q = self.rope(q, start_index)
-        # k = self.rope(k, start_index)
+        q = self.rope(q, start_index)
+        k = self.rope(k, start_index)
 
         # --> [B, n_heads, L, d_head], if query seq length == 1,
         # set is_causal to False to avoid attention mask construction to save computation
