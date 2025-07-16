@@ -59,8 +59,55 @@ def main_test():
             lm_head_weight = hf_model.get_parameter("model.embed_tokens.weight")
             if not torch.allclose(param.float(), lm_head_weight.float(), atol=1e-200, rtol=1e-200):
                 print(f"Parameter '{name}' values do not match between custom model and Hugging Face model.")
+
+
+def test_inference():
+    model_name = "Qwen1.5-0.5B-Chat"
+    model_dir = Path(f"checkpoints/{model_name}")
+    model, model_name, model_args = load_model(model_dir, strict=True)
+    
+    # Load the model using Hugging Face
+    hf_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen1.5-0.5B-Chat", torch_dtype="float32", device_map="cpu", trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen1.5-0.5B-Chat", trust_remote_code=True)
+    tokenizer.pad_token = tokenizer.eos_token
+    
+    print(hf_model)
+
+    prompt = "Where is china ?"
+    
+    input_ids = tokenizer(prompt, return_tensors="pt")["input_ids"].to("cpu")
+    
+    print(input_ids)
+    hf_logits = hf_model.forward(input_ids).logits
+    print(f"Hugging Face logits shape: {hf_logits.shape}")
+    
+    logits = model.forward(input_ids)
+    print(f"Custom model logits shape: {logits.shape}")
+    
+    # Take the last logits vector and apply softmax
+    hf_probs = torch.softmax(hf_logits[0, -1], dim=-1)
+    custom_probs = torch.softmax(logits[0, -1], dim=-1)
+    
+    print(hf_probs[:10])  # Print the first 10 probabilities from Hugging Face model
+    print(custom_probs[:10])  # Print the first 10 probabilities from custom model
+    
+    # Compute the average difference, min, and max in probabilities for all logits
+    hf_probs_all = torch.softmax(hf_logits, dim=-1)
+    custom_probs_all = torch.softmax(logits, dim=-1)
+    
+    diff = torch.abs(hf_probs_all - custom_probs_all)
+    avg_diff = torch.mean(diff).item()
+    min_diff = torch.min(diff).item()
+    max_diff = torch.max(diff).item()
+    
+    print(f"Average difference in probabilities: {avg_diff}")
+    print(f"Minimum difference in probabilities: {min_diff}")
+    print(f"Maximum difference in probabilities: {max_diff}")
+    
+    
     
 
 
 if __name__ == "__main__":
-    main_test()
+    # main_test()
+    test_inference()
