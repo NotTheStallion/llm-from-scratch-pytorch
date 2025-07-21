@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 
 from attention import scaled_dot_product_attention
-from rope import RoPE, positional_encoding
+from rope import RoPE, positional_encoding, Rotary
 from model_args import ModelArgs
 
 class EncoderBlock(nn.Module):
@@ -45,6 +45,7 @@ class SelfAttention(nn.Module):
         self.o_proj = nn.Linear(self.n_heads * self.d_head, args.dim, bias=False)
         
         self.rope = RoPE(args)
+        self.custom_rope = Rotary(args)
 
     def forward(self, x: torch.Tensor, start_index: int) -> torch.Tensor:
         # x: [B, L, D]
@@ -70,8 +71,10 @@ class SelfAttention(nn.Module):
         v = v.permute(0, 2, 1, 3).contiguous()
         
         # RoPE
-        q = self.rope(q, start_index)
-        k = self.rope(k, start_index)
+        # q = self.rope(q, 0)
+        # k = self.rope(k, 0)
+        q = self.custom_rope(q)
+        k = self.custom_rope(k)
 
         # --> [B, n_heads, L, d_head], if query seq length == 1,
         # set is_causal to False to avoid attention mask construction to save computation
