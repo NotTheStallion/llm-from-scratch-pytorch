@@ -116,9 +116,23 @@ MODEL_ARGS_MAP = {
         rope_theta=1000000.0,
         max_batch_size=1,
         max_seq_len=4096,  # 32768,
+    ),
+    "Qwen3-0.6B": ModelArgs(
+        llm_type="qwen",
+        n_vocab=151936,
+        dim=1024,
+        n_layers=28,
+        n_heads=16,
+        n_kv_heads=8,
+        ffn_hidden_dim=3072,
+        norm_eps=1e-6,
+        rope_theta=1000000.0,
+        max_batch_size=1,
+        max_seq_len=40960,  # 32768,
     )
 }
 
 def get_model_args(model_name: str) -> ModelArgs:
+    print(model_name)
     return MODEL_ARGS_MAP.get(model_name, None)
 
