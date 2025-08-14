@@ -39,14 +39,19 @@ class SelfAttention(nn.Module):
             self.n_kv_heads = self.n_heads
         self.d_head = args.dim // args.n_heads
 
-        self.q_proj = nn.Linear(args.dim, self.n_heads * self.d_head, bias=True)
-        self.k_proj = nn.Linear(args.dim, self.n_kv_heads * self.d_head, bias=True)
-        self.v_proj = nn.Linear(args.dim, self.n_kv_heads * self.d_head, bias=True)
+        self.q_proj = nn.Linear(args.dim, self.n_heads * self.d_head, bias=False)
+        self.k_proj = nn.Linear(args.dim, self.n_kv_heads * self.d_head, bias=False)
+        self.v_proj = nn.Linear(args.dim, self.n_kv_heads * self.d_head, bias=False)
         self.o_proj = nn.Linear(self.n_heads * self.d_head, args.dim, bias=False)
         
         self.custom_rope = Rotary(args)
+        
+        self.qk_rms_norm = args.qk_rms_norm
+        
+        if self.qk_rms_norm:
+            self.rms_norm = RMSNorm(self.d_head, eps=args.norm_eps)
 
-    def forward(self, x: torch.Tensor, start_index: int) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: int) -> torch.Tensor:
         # x: [B, L, D]
         B, L, D = x.shape
         # pe = positional_encoding(L, D)
@@ -54,7 +59,7 @@ class SelfAttention(nn.Module):
 
         # [B, L, D] --> [B, L, D]
         q: torch.Tensor = self.q_proj(x)
-        # [B, L, D] --> [B, L, D_kv], D_kv may smaller than D
+        # [B, L, D] --> [B, L, D_kv], D_kv may smaller than D (MQA or GQA)
         k: torch.Tensor = self.k_proj(x)
         v: torch.Tensor = self.v_proj(x)
 
@@ -69,16 +74,27 @@ class SelfAttention(nn.Module):
         k = k.permute(0, 2, 1, 3).contiguous()
         v = v.permute(0, 2, 1, 3).contiguous()
         
+        # Qk rms_norm
+        if self.qk_rms_norm:
+            # k = self.rms_norm(k)
+            # v = self.rms_norm(v)
+            k = RMSNorm(self.d_head, eps=1e-6)(k)
+            v = RMSNorm(self.d_head, eps=1e-6)(v)
+        
         # RoPE
         q = self.custom_rope(q)
         k = self.custom_rope(k)
+        
+        # repeat k and v if n_heads != n_kv_heads
+        k = k.repeat_interleave(self.n_heads//self.n_kv_heads, dim=1)
+        v = v.repeat_interleave(self.n_heads//self.n_kv_heads, dim=1)
 
-        # --> [B, n_heads, L, d_head], if query seq length == 1,
-        # set is_causal to False to avoid attention mask construction to save computation
-        # output = scaled_dot_product_attention_gqa(q, k, v, is_causal=q.shape[-2] > 1)
-        output = scaled_dot_product_attention(q, k, v, is_causal=True)
-        # [B, n_heads, L, d_head] --> [B, L, n_heads, d_head] --> [B, L, D]
-        output = output.permute(0, 2, 1, 3).reshape(B, L, -1)
+        # Attention softmax(QK^T / sqrt(d_head))V
+        attn_scores = q @ k.transpose(2, 3)
+        attn_scores = attn_scores.masked_fill(mask, -torch.inf)
+        attn_weights = torch.softmax(attn_scores / self.d_head**0.5, dim=-1)
+
+        output = (attn_weights @ v).transpose(1, 2).reshape(B, L, D)
 
         # [B, L, D] --> [B, L, D]
         return self.o_proj(output)
