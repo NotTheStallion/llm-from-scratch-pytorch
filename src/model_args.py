@@ -12,6 +12,7 @@ class ModelArgs(BaseModel):
     # attention
     n_heads: int = -1
     n_kv_heads: Optional[int] = None  # None means n_kv_heads = n_heads
+    qk_rms_norm: bool = False # whether to apply RMSNorm to Q and K
     # mlp
     ffn_hidden_dim: int = -1
     # norm
