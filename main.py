@@ -8,6 +8,7 @@ from src.utils import get_model_args
 from src.model_args import ModelArgs
 
 def load_model(
+        model_name: str,
         model_dir: Path,
         strict=True,
     ) -> tuple[CausalLM, str, ModelArgs]:
@@ -15,9 +16,8 @@ def load_model(
 
         if model_dir is None:
             return None, None, None
-        model_name = model_dir.name
         model_args = get_model_args(model_name)
-        
+
         model = CausalLM.from_pretrained(
             model_dir,
             model_args,
@@ -29,11 +29,12 @@ def load_model(
 
 
 if __name__ == "__main__":
-    model_name = "Qwen1.5-0.5B-Chat"
+    model_name = "Qwen3-0.6B"
     model_dir = Path(f"checkpoints/{model_name}")
-    model, model_name, model_args = load_model(model_dir, strict=True)
+    model_dir = Path("checkpoints/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca")
+    model, model_name, model_args = load_model(model_name, model_dir, strict=True)
     tokenizer = AutoTokenizer.from_pretrained(
-            "Qwen/Qwen1.5-0.5B-Chat", trust_remote_code=True
+            "Qwen/Qwen3-0.6B", trust_remote_code=True
         )
 
     if model_args.n_vocab != len(tokenizer):
