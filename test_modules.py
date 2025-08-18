@@ -151,6 +151,89 @@ class GroupedQueryAttention(nn.Module):
 
 
 
+class TransformerBlock(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.att = GroupedQueryAttention(
+            d_in=cfg["emb_dim"],
+            num_heads=cfg["n_heads"],
+            head_dim=cfg["head_dim"],
+            num_kv_groups=cfg["n_kv_groups"],
+            qk_norm=cfg["qk_norm"],
+            dtype=cfg["dtype"]
+        )
+        self.ff = FeedForward(cfg)
+        self.norm1 = RMSNorm(cfg["emb_dim"], eps=1e-6)
+        self.norm2 = RMSNorm(cfg["emb_dim"], eps=1e-6)
+
+    def forward(self, x, mask, cos, sin):
+        # Shortcut connection for attention block
+        shortcut = x
+        x = self.norm1(x)
+        x = self.att(x, mask, cos, sin)  # Shape [batch_size, num_tokens, emb_size]
+        x = x + shortcut  # Add the original input back
+
+        # Shortcut connection for feed-forward block
+        shortcut = x
+        x = self.norm2(x)
+        x = self.ff(x)
+        x = x + shortcut  # Add the original input back
+
+        return x
+
+
+
+class Qwen3Model(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+
+        # Main model parameters
+        self.tok_emb = nn.Embedding(cfg["vocab_size"], cfg["emb_dim"], dtype=cfg["dtype"])
+
+        self.trf_blocks = nn.ModuleList(  # ModuleList since Sequential can only accept one input, and we need `x, mask, cos, sin`
+            [TransformerBlock(cfg) for _ in range(cfg["n_layers"])]
+        )
+
+        self.final_norm = RMSNorm(cfg["emb_dim"])
+        self.out_head = nn.Linear(cfg["emb_dim"], cfg["vocab_size"], bias=False, dtype=cfg["dtype"])
+
+        # Reusuable utilities
+        if cfg["head_dim"] is None:
+            head_dim = cfg["emb_dim"] // cfg["n_heads"]
+        else:
+            head_dim = cfg["head_dim"]
+        cos, sin = compute_rope_params(
+            head_dim=head_dim,
+            theta_base=cfg["rope_base"],
+            context_length=cfg["context_length"]
+        )
+        self.register_buffer("cos", cos, persistent=False)
+        self.register_buffer("sin", sin, persistent=False)
+        self.cfg = cfg
+
+
+    def forward(self, in_idx):
+        # Forward pass
+        tok_embeds = self.tok_emb(in_idx)
+        x = tok_embeds
+        
+
+        num_tokens = x.shape[1]
+        mask = torch.triu(torch.ones(num_tokens, num_tokens, device=x.device, dtype=torch.bool), diagonal=1)
+        
+        for block in self.trf_blocks:
+            x = block(x, mask, self.cos, self.sin)
+        x = self.final_norm(x)
+        
+        # * Ensure the output head is in the same dtype as the input
+        # self.out_head.weight.data = self.out_head.weight.data.to(x.dtype)  # Ensure dtype consistency
+        # print(f"Output head dtype: {self.out_head.weight.dtype}, Input dtype: {x.dtype}")
+        # logits = self.out_head(x.to(self.cfg["dtype"]))
+        logits = self.out_head(x)
+        return logits
+
+
+
 def test_rope():
     from src.rope import Rotary, ModelArgs
 
@@ -164,16 +247,17 @@ def test_rope():
         ffn_hidden_dim=256,
         max_batch_size=1,
         max_seq_len=4096,
+        rope_theta=1_000_000.0,  # Base for RoPE
     )
 
-    rotary = Rotary(model_args, base=10_000)
+    rotary = Rotary(model_args)
 
     head_dim = model_args.dim // model_args.n_heads
     context_length = model_args.max_seq_len
-    cos, sin = compute_rope_params(head_dim, context_length=context_length)
+    cos, sin = compute_rope_params(head_dim, theta_base=model_args.rope_theta, context_length=context_length)
     
 
-    x = torch.randn(2, 8, 256, head_dim)  # (batch_size, num_heads, seq_len, head_dim)
+    x = torch.randn(2, 8, model_args.max_seq_len, head_dim)  # (batch_size, num_heads, seq_len, head_dim)
     
     x_rotated = apply_rope(x, cos, sin)
     custom_rotated = rotary.forward(x)
@@ -383,9 +467,142 @@ def test_mlp():
     print("FeedForward test ... OK")
 
 
+
+def test_block():
+    from src.utils import ModelArgs
+
+    model_args = ModelArgs(
+        llm_type="qwen",
+        n_vocab=32000,
+        dim=128,
+        n_layers=4,
+        n_heads=8,
+        n_kv_heads=2,
+        ffn_hidden_dim=256,
+        max_batch_size=1,
+        max_seq_len=4096,
+    )
+    
+    cfg = {
+        "emb_dim": model_args.dim,
+        "n_heads": model_args.n_heads,
+        "n_kv_groups": model_args.n_kv_heads,
+        "head_dim": model_args.dim // model_args.n_heads,
+        "qk_norm": model_args.qk_rms_norm,
+        "hidden_dim": model_args.ffn_hidden_dim,
+        "dtype": torch.float32
+    }
+
+    b, num_tokens, d_in = 2, 10, model_args.dim
+    x = torch.randn(b, num_tokens, d_in)
+
+    cos, sin = compute_rope_params(model_args.dim // model_args.n_heads, context_length=model_args.max_seq_len)
+
+    mask = torch.zeros((b, 1, num_tokens, num_tokens), dtype=torch.bool)
+
+    block = TransformerBlock(cfg)
+    
+    from src.module import EncoderBlock
+    
+    custom_block = EncoderBlock(model_args)
+    
+    
+    # synch weights
+    block.att.W_query.weight.data = custom_block.self_attn.q_proj.weight.data
+    block.att.W_key.weight.data = custom_block.self_attn.k_proj.weight.data
+    block.att.W_value.weight.data = custom_block.self_attn.v_proj.weight.data
+    block.att.out_proj.weight.data = custom_block.self_attn.o_proj.weight.data
+    block.ff.fc1.weight.data = custom_block.mlp.gate_proj.weight.data
+    block.ff.fc2.weight.data = custom_block.mlp.up_proj.weight.data
+    block.ff.fc3.weight.data = custom_block.mlp.down_proj.weight.data
+    
+    
+    output_block = block(x, mask, cos, sin)
+    custom_block_output_block = custom_block(x, mask)
+    
+    assert output_block.shape == custom_block_output_block.shape, f"Shape mismatch: {output_block.shape} != {custom_block_output_block.shape}"
+    assert torch.allclose(output_block, custom_block_output_block, atol=1e-5), "Output values do not match between TransformerBlock and custom EncoderBlock"    
+
+    print("TransformerBlock test ... OK")
+
+
+
+def test_causal_lm():
+    from src.causal_model import CausalLM
+    from src.utils import ModelArgs
+    
+    model_args = ModelArgs(
+        llm_type="qwen",
+        n_vocab=151_936,
+        dim=1024,
+        n_layers=28,
+        n_heads=16,
+        n_kv_heads=8,
+        qk_rms_norm=True,
+        ffn_hidden_dim=3072,
+        norm_eps=1e-6,
+        rope_theta=1_000_000.0,
+        max_batch_size=2,
+        max_seq_len=40_960,  # 32768,
+    )
+    
+    cfg = {
+        "vocab_size": 151_936,           # Vocabulary size
+        "context_length": 40_960,        # Context length that was used to train the model
+        "emb_dim": 1024,                 # Embedding dimension
+        "n_heads": 16,                   # Number of attention heads
+        "n_layers": 28,                  # Number of layers
+        "hidden_dim": 3072,              # Size of the intermediate dimension in FeedForward
+        "head_dim": None,                 # Size of the heads in GQA
+        "qk_norm": True,                 # Whether to normalize queries and values in GQA
+        "n_kv_groups": 8,                # Key-Value groups for grouped-query attention
+        "rope_base": 1_000_000.0,        # The base in RoPE's "theta"
+        "dtype": None,         # Lower-precision dtype to reduce memory usage
+    }
+    
+    gt_model = Qwen3Model(cfg)
+    
+    custom_model = CausalLM(model_args)
+    
+    # Synch weights
+    gt_model.tok_emb.weight.data = custom_model.model.embed_tokens.weight.data
+    for i in range(model_args.n_layers):
+        gt_model.trf_blocks[i].att.W_query.weight.data = custom_model.model.layers[i].self_attn.q_proj.weight.data
+        gt_model.trf_blocks[i].att.W_key.weight.data = custom_model.model.layers[i].self_attn.k_proj.weight.data
+        gt_model.trf_blocks[i].att.W_value.weight.data = custom_model.model.layers[i].self_attn.v_proj.weight.data
+        gt_model.trf_blocks[i].att.out_proj.weight.data = custom_model.model.layers[i].self_attn.o_proj.weight.data
+        gt_model.trf_blocks[i].ff.fc1.weight.data = custom_model.model.layers[i].mlp.gate_proj.weight.data
+        gt_model.trf_blocks[i].ff.fc2.weight.data = custom_model.model.layers[i].mlp.up_proj.weight.data
+        gt_model.trf_blocks[i].ff.fc3.weight.data = custom_model.model.layers[i].mlp.down_proj.weight.data
+    gt_model.out_head.weight.data = custom_model.lm_head.weight.data
+
+    
+    num_tokens = 10
+    x = torch.randint(0, model_args.n_vocab, (model_args.max_batch_size, num_tokens), dtype=torch.int64)  # (batch_size, num_tokens)
+    print(f"Input shape: {x.shape}")
+
+    
+    
+    logits = gt_model(x)
+    custom_logits = custom_model(x)
+    
+    assert logits.shape == custom_logits.shape, f"Shape mismatch: {logits.shape} != {custom_logits.shape}"
+    
+    print(f"Logits mean difference: {torch.mean(torch.abs(logits - custom_logits)).item()}")
+    print(f"Logits max difference: {torch.max(torch.abs(logits - custom_logits)).item()}")
+    print(f"Logits min difference: {torch.min(torch.abs(logits - custom_logits)).item()}")
+    print(f"Logits std difference: {torch.std(torch.abs(logits - custom_logits)).item()}")  
+    
+    assert torch.allclose(logits, custom_logits, atol=1e-5), "Output values do not match between Qwen3Model and CausalLM"
+    
+    print(f"Full Model test ... OK")
+
+
 if __name__ == "__main__":
     test_rope()
     test_rms_norm()
     test_grouped_query_attention()
     test_gqa_rms_norm()
     test_mlp()
+    test_block()
+    test_causal_lm()
