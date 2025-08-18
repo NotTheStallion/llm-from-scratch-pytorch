@@ -73,8 +73,74 @@ class CausalLM(nn.Module):
     ) -> "CausalLM":
         state_dict: OrderedDict = load_model_state_dict(model_dir)
         model = CausalLM(model_args)
-        model.load_state_dict(state_dict, strict=strict)
+        model.load_model_params(state_dict, model_args)
         return model
+
+    def load_model_params(self, state_dict: OrderedDict, model_args: ModelArgs = None):
+        """
+        Load model parameters from a state dictionary.
+        """
+        print(state_dict.keys())
+        
+        self.lm_head.weight = nn.Parameter(
+            state_dict.pop("lm_head.weight")
+        )
+        
+        self.model["embed_tokens"].weight = nn.Parameter(
+            state_dict.pop("model.embed_tokens.weight")
+        )
+        
+        self.model["norm"].weight = nn.Parameter(
+            state_dict.pop("model.norm.weight")
+        )
+        
+        for i in range(model_args.n_layers):
+            layer_key = f"model.layers.{i}."
+            layer_state_dict = OrderedDict(
+                (k.replace(layer_key, ""), v)
+                for k, v in state_dict.items()
+                if k.startswith(layer_key)
+            )
+            if layer_state_dict:
+                # input layernorm
+                self.model["layers"][i].input_layernorm.weight = nn.Parameter(
+                    layer_state_dict.pop("input_layernorm.weight")
+                )
+                
+                # MLP
+                self.model["layers"][i].mlp.gate_proj.weight = nn.Parameter(
+                    layer_state_dict.pop("mlp.gate_proj.weight")
+                )
+                self.model["layers"][i].mlp.up_proj.weight = nn.Parameter(
+                    layer_state_dict.pop("mlp.up_proj.weight")
+                )
+                self.model["layers"][i].mlp.down_proj.weight = nn.Parameter(
+                    layer_state_dict.pop("mlp.down_proj.weight")
+                )
+                
+                # post attention layernorm
+                self.model["layers"][i].post_attention_layernorm.weight = nn.Parameter(
+                    layer_state_dict.pop("post_attention_layernorm.weight")
+                )
+                
+                # GQA
+                self.model["layers"][i].self_attn.q_proj.weight = nn.Parameter(
+                    layer_state_dict.pop("self_attn.q_proj.weight")
+                )
+                self.model["layers"][i].self_attn.k_proj.weight = nn.Parameter(
+                    layer_state_dict.pop("self_attn.k_proj.weight")
+                )
+                self.model["layers"][i].self_attn.v_proj.weight = nn.Parameter(
+                    layer_state_dict.pop("self_attn.v_proj.weight")
+                )
+                self.model["layers"][i].self_attn.o_proj.weight = nn.Parameter(
+                    layer_state_dict.pop("self_attn.o_proj.weight")
+                )
+            else:
+                raise ValueError(f"Layer {i} not found in state_dict.")
+        
+        
+        
 
 
 if __name__ == "__main__":
