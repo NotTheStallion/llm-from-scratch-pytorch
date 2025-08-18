@@ -10,6 +10,7 @@ class ModelArgs(BaseModel):
     n_layers: int = -1
     wte_tying: bool = False
     # attention
+    d_head: Optional[int] = None  # None means d_head = dim // n_heads
     n_heads: int = -1
     n_kv_heads: Optional[int] = None  # None means n_kv_heads = n_heads
     qk_rms_norm: bool = False # whether to apply RMSNorm to Q and K
