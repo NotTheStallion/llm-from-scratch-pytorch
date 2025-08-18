@@ -25,7 +25,9 @@ class Rotary(nn.Module):
     super().__init__()
     self.base = args.rope_theta
     self.max_seq_len = args.max_seq_len
+    
     self.dim = args.dim // args.n_heads
+    self.dim = args.d_head
     self.rope_dim = self.dim
     self.cos_cached = None
     self.sin_cached = None
@@ -34,16 +36,15 @@ class Rotary(nn.Module):
 
   def _build_cache(self, dtype=torch.float32):
     seq_len = self.max_seq_len
-    theta = 1. / (self.base ** (torch.arange(0, self.rope_dim, 2, dtype=dtype).float() / self.rope_dim)) # THETA = 10,000^(-2*i/d) or 1/10,000^(2i/d)
-    pos = torch.arange(seq_len).float() #Position Index -> [0,1,2...seq-1]
+    theta = 1. / (self.base ** (torch.arange(0, self.rope_dim, 2, dtype=dtype) / self.rope_dim)) # THETA = 10,000^(-2*i/d) or 1/10,000^(2i/d)
+    pos = torch.arange(seq_len, dtype=dtype) #Position Index -> [0,1,2...seq-1]
     angles = pos[:, None] * theta[None, :]  # (max_seq_len, head_dim // 2)
     angles = torch.cat([angles, angles], dim=1)  # (max_seq_len, head_dim)
-
+    
     # Precompute sine and cosine
     self.cos_cached = torch.cos(angles).unsqueeze(0).unsqueeze(0)  # Shape: (1, 1, max_seq_len, head_dim)
     self.sin_cached = torch.sin(angles).unsqueeze(0).unsqueeze(0)  # Shape: (1, 1, max_seq_len, head_dim)
-    
-    
+      
 
   def _neg_half(self, x: torch.Tensor):
     d_2 = self.rope_dim // 2
