@@ -34,10 +34,11 @@ class SelfAttention(nn.Module):
     def __init__(self, args: ModelArgs):
         super().__init__()
 
-        self.n_heads, self.n_kv_heads = args.n_heads, args.n_kv_heads
+        self.n_heads, self.n_kv_heads, self.d_head = args.n_heads, args.n_kv_heads, args.d_head
         if self.n_kv_heads is None:
             self.n_kv_heads = self.n_heads
-        self.d_head = args.dim // args.n_heads
+        if self.d_head is None:
+            self.d_head = args.dim // args.n_heads
 
         self.q_proj = nn.Linear(args.dim, self.n_heads * self.d_head, bias=False)
         self.k_proj = nn.Linear(args.dim, self.n_kv_heads * self.d_head, bias=False)
@@ -49,8 +50,8 @@ class SelfAttention(nn.Module):
         self.qk_rms_norm = args.qk_rms_norm
         
         if self.qk_rms_norm:
-            self.q_rms_norm = RMSNorm(self.d_head, eps=args.norm_eps)
-            self.k_rms_norm = RMSNorm(self.d_head, eps=args.norm_eps)
+            self.q_norm = RMSNorm(self.d_head, eps=args.norm_eps)
+            self.k_norm = RMSNorm(self.d_head, eps=args.norm_eps)
 
     def forward(self, x: torch.Tensor, mask: int) -> torch.Tensor:
         # x: [B, L, D]
@@ -78,18 +79,18 @@ class SelfAttention(nn.Module):
         # Qk rms_norm
         if self.qk_rms_norm:
             # ! The two lines below cause a 1e-5 error in test [ununderstandable]
-            # q = self.q_rms_norm(q)
-            # k = self.k_rms_norm(k)
+            # q = self.q_norm(q)
+            # k = self.k_norm(k)
             q = RMSNorm(self.d_head, eps=1e-6)(q)
             k = RMSNorm(self.d_head, eps=1e-6)(k)
         
         # RoPE
-        q = self.custom_rope(q)
-        k = self.custom_rope(k)
+        q = self.custom_rope(q) # (B, n_heads, L, d_head)
+        k = self.custom_rope(k) # (B, n_kv_heads, L_kv, d_head)
         
         # repeat k and v if n_heads != n_kv_heads
-        k = k.repeat_interleave(self.n_heads//self.n_kv_heads, dim=1)
-        v = v.repeat_interleave(self.n_heads//self.n_kv_heads, dim=1)
+        k = k.repeat_interleave(self.n_heads//self.n_kv_heads, dim=1) # (B, n_heads, L_kv, d_head)
+        v = v.repeat_interleave(self.n_heads//self.n_kv_heads, dim=1) # (B, n_heads, L_kv, d_head)
 
         # Attention softmax(QK^T / sqrt(d_head))V
         attn_scores = q @ k.transpose(2, 3)
