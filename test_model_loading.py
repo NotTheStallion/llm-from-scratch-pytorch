@@ -29,18 +29,18 @@ def main_test():
     #     if "lm_head.weight" in name:
     #         print(f"Hugging Face model parameter: {name}, shape: {hf_param.shape}")
     
-    # # Compare the names and shapes of parameters
-    # model_params = {name: param.shape for name, param in model.named_parameters()}
-    # hf_model_params = {name: hf_param.shape for name, hf_param in hf_model.named_parameters()}
+    # Compare the names and shapes of parameters
+    model_params = {name: param.shape for name, param in model.named_parameters()}
+    hf_model_params = {name: hf_param.shape for name, hf_param in hf_model.named_parameters()}
     
-    # for name, shape in model_params.items():
-    #     if name in hf_model_params:
-    #         if shape != hf_model_params[name]:
-    #             print(f"Parameter '{name}' shape mismatch: {shape} vs {hf_model_params[name]}")
-    #     elif "lm_head.weight" in name:
-    #         print(f"Parameter '{name}' not found in Hugging Face model, but it is a lm_head.weight. Copy of {hf_model_params['model.embed_tokens.weight']} will be used.")
-    #     else:
-    #         print(f"Parameter '{name}' not found in Hugging Face model.")
+    for name, shape in model_params.items():
+        if name in hf_model_params:
+            if shape != hf_model_params[name]:
+                print(f"Parameter '{name}' shape mismatch: {shape} vs {hf_model_params[name]}")
+        elif "lm_head.weight" in name:
+            print(f"Parameter '{name}' not found in Hugging Face model, but it is a lm_head.weight. Copy of {hf_model_params['model.embed_tokens.weight']} will be used.")
+        else:
+            print(f"Parameter '{name}' not found in Hugging Face model.")
     
     # for name in hf_model_params.keys():
     #     if name not in model_params:
