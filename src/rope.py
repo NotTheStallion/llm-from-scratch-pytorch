@@ -20,14 +20,13 @@ def positional_encoding(L, d, n=10000):
 
 class Rotary(nn.Module):
 
-  def __init__(self, args: ModelArgs, base: int = 10_000, dtype=torch.float32):
+  def __init__(self, args: ModelArgs, dtype=torch.float32):
 
     super().__init__()
-    self.base = base
+    self.base = args.rope_theta
     self.max_seq_len = args.max_seq_len
     self.dim = args.dim // args.n_heads
     self.rope_dim = self.dim
-    # print(f"dim: {self.dim}, rope_dim: {self.rope_dim}, n_heads: {args.n_heads}")
     self.cos_cached = None
     self.sin_cached = None
     
