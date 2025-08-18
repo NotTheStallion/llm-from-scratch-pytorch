@@ -80,8 +80,7 @@ class CausalLM(nn.Module):
         """
         Load model parameters from a state dictionary.
         """
-        print(state_dict.keys())
-        
+
         self.lm_head.weight = nn.Parameter(
             state_dict.pop("lm_head.weight")
         )
