@@ -17,7 +17,7 @@ class FeedForward(nn.Module):
         return self.fc3(x)
 
 
-def compute_rope_params(head_dim, theta_base=10_000, context_length=4096, dtype=torch.float32):
+def compute_rope_params(head_dim, theta_base=1_000_000.0, context_length=40_960, dtype=torch.float32):
     assert head_dim % 2 == 0, "Embedding dimension must be even"
 
     # Compute the inverse frequencies
@@ -136,6 +136,9 @@ class GroupedQueryAttention(nn.Module):
         # Apply RoPE
         queries = apply_rope(queries, cos, sin)
         keys = apply_rope(keys, cos, sin)
+        
+        # print(f"cos debug : {cos[:5, :10]}")
+        # print(f"queries debug : {queries[0, 0, :5, :10]}")
 
         # Expand K and V to match number of heads
         keys = keys.repeat_interleave(self.group_size, dim=1)
@@ -239,25 +242,26 @@ def test_rope():
 
     model_args = ModelArgs(
         llm_type="qwen",
-        n_vocab=32000,
-        dim=128,
-        n_layers=4,
-        n_heads=8,
-        n_kv_heads=4,
-        ffn_hidden_dim=256,
-        max_batch_size=1,
-        max_seq_len=4096,
-        rope_theta=1_000_000.0,  # Base for RoPE
+        n_vocab=151_936,
+        dim=1024,
+        n_layers=28,
+        d_head=128,
+        n_heads=16,
+        n_kv_heads=8,
+        qk_rms_norm=False,
+        ffn_hidden_dim=3072,
+        norm_eps=1e-6,
+        rope_theta=1_000_000.0,
+        max_batch_size=2,
+        max_seq_len=40_960,  # 32768,
     )
 
     rotary = Rotary(model_args)
 
-    head_dim = model_args.dim // model_args.n_heads
     context_length = model_args.max_seq_len
-    cos, sin = compute_rope_params(head_dim, theta_base=model_args.rope_theta, context_length=context_length)
-    
+    cos, sin = compute_rope_params(model_args.d_head, theta_base=model_args.rope_theta, context_length=context_length)
 
-    x = torch.randn(2, 8, model_args.max_seq_len, head_dim)  # (batch_size, num_heads, seq_len, head_dim)
+    x = torch.randn(2, 8, model_args.max_seq_len, model_args.d_head)  # (batch_size, num_heads, seq_len, head_dim)
     
     x_rotated = apply_rope(x, cos, sin)
     custom_rotated = rotary.forward(x)
@@ -293,28 +297,32 @@ def test_grouped_query_attention():
 
     model_args = ModelArgs(
         llm_type="qwen",
-        n_vocab=32000,
-        dim=128,
-        n_layers=4,
-        n_heads=8,
-        n_kv_heads=2,
-        ffn_hidden_dim=256,
-        max_batch_size=1,
-        max_seq_len=4096,
+        n_vocab=151_936,
+        dim=1024,
+        n_layers=28,
+        d_head=128,
+        n_heads=16,
+        n_kv_heads=8,
+        qk_rms_norm=False,
+        ffn_hidden_dim=3072,
+        norm_eps=1e-6,
+        rope_theta=1_000_000.0,
+        max_batch_size=2,
+        max_seq_len=40_960,  # 32768,
     )
 
     b, num_tokens, d_in = 2, 10, model_args.dim
     x = torch.randn(b, num_tokens, d_in)
 
-    cos, sin = compute_rope_params(model_args.dim // model_args.n_heads, context_length=model_args.max_seq_len)
-
+    cos, sin = compute_rope_params(model_args.d_head, theta_base=model_args.rope_theta, context_length=model_args.max_seq_len)
+    
     mask = torch.zeros((b, 1, num_tokens, num_tokens), dtype=torch.bool)
 
     attention = GroupedQueryAttention(
         d_in=model_args.dim,
         num_heads=model_args.n_heads,
         num_kv_groups=model_args.n_kv_heads,
-        head_dim=model_args.dim // model_args.n_heads
+        head_dim=model_args.d_head
     )
 
     
@@ -358,21 +366,24 @@ def test_gqa_rms_norm():
 
     model_args = ModelArgs(
         llm_type="qwen",
-        n_vocab=32000,
-        dim=128,
-        n_layers=4,
-        n_heads=8,
-        n_kv_heads=2,
-        qk_rms_norm=True,  # @param Enable QK RMSNorm
-        ffn_hidden_dim=256,
-        max_batch_size=1,
-        max_seq_len=4096,
+        n_vocab=151_936,
+        dim=1024,
+        n_layers=28,
+        d_head=128,
+        n_heads=16,
+        n_kv_heads=8,
+        qk_rms_norm=True,
+        ffn_hidden_dim=3072,
+        norm_eps=1e-6,
+        rope_theta=1_000_000.0,
+        max_batch_size=2,
+        max_seq_len=40_960,  # 32768,
     )
 
     b, num_tokens, d_in = 2, 10, model_args.dim
     x = torch.randn(b, num_tokens, d_in)
 
-    cos, sin = compute_rope_params(model_args.dim // model_args.n_heads, context_length=model_args.max_seq_len)
+    cos, sin = compute_rope_params(model_args.d_head, context_length=model_args.max_seq_len)
 
     mask = torch.zeros((b, 1, num_tokens, num_tokens), dtype=torch.bool)
 
@@ -380,7 +391,7 @@ def test_gqa_rms_norm():
         d_in=model_args.dim,
         num_heads=model_args.n_heads,
         num_kv_groups=model_args.n_kv_heads,
-        head_dim=model_args.dim // model_args.n_heads,
+        head_dim=model_args.d_head,
         qk_norm=model_args.qk_rms_norm
     )
 
@@ -425,14 +436,18 @@ def test_mlp():
 
     model_args = ModelArgs(
         llm_type="qwen",
-        n_vocab=32000,
-        dim=128,
-        n_layers=4,
-        n_heads=8,
-        n_kv_heads=2,
-        ffn_hidden_dim=256,
-        max_batch_size=1,
-        max_seq_len=4096,
+        n_vocab=151_936,
+        dim=1024,
+        n_layers=28,
+        d_head=128,
+        n_heads=16,
+        n_kv_heads=8,
+        qk_rms_norm=True,
+        ffn_hidden_dim=3072,
+        norm_eps=1e-6,
+        rope_theta=1_000_000.0,
+        max_batch_size=2,
+        max_seq_len=40_960,  # 32768,
     )
     
     cfg = {
@@ -473,21 +488,25 @@ def test_block():
 
     model_args = ModelArgs(
         llm_type="qwen",
-        n_vocab=32000,
-        dim=128,
-        n_layers=4,
-        n_heads=8,
-        n_kv_heads=2,
-        ffn_hidden_dim=256,
-        max_batch_size=1,
-        max_seq_len=4096,
+        n_vocab=151_936,
+        dim=1024,
+        n_layers=28,
+        d_head=128,
+        n_heads=16,
+        n_kv_heads=8,
+        qk_rms_norm=True,
+        ffn_hidden_dim=3072,
+        norm_eps=1e-6,
+        rope_theta=1_000_000.0,
+        max_batch_size=2,
+        max_seq_len=40_960,  # 32768,
     )
     
     cfg = {
         "emb_dim": model_args.dim,
         "n_heads": model_args.n_heads,
         "n_kv_groups": model_args.n_kv_heads,
-        "head_dim": model_args.dim // model_args.n_heads,
+        "head_dim": model_args.d_head,
         "qk_norm": model_args.qk_rms_norm,
         "hidden_dim": model_args.ffn_hidden_dim,
         "dtype": torch.float32
@@ -496,7 +515,7 @@ def test_block():
     b, num_tokens, d_in = 2, 10, model_args.dim
     x = torch.randn(b, num_tokens, d_in)
 
-    cos, sin = compute_rope_params(model_args.dim // model_args.n_heads, context_length=model_args.max_seq_len)
+    cos, sin = compute_rope_params(model_args.d_head, context_length=model_args.max_seq_len)
 
     mask = torch.zeros((b, 1, num_tokens, num_tokens), dtype=torch.bool)
 
@@ -536,6 +555,7 @@ def test_causal_lm():
         n_vocab=151_936,
         dim=1024,
         n_layers=28,
+        d_head=128,
         n_heads=16,
         n_kv_heads=8,
         qk_rms_norm=True,
@@ -549,11 +569,11 @@ def test_causal_lm():
     cfg = {
         "vocab_size": 151_936,           # Vocabulary size
         "context_length": 40_960,        # Context length that was used to train the model
-        "emb_dim": 1024,                 # Embedding dimension
+        "emb_dim": 1024,                 # Embedding dimension"
         "n_heads": 16,                   # Number of attention heads
         "n_layers": 28,                  # Number of layers
         "hidden_dim": 3072,              # Size of the intermediate dimension in FeedForward
-        "head_dim": None,                 # Size of the heads in GQA
+        "head_dim": 128,                 # Size of the heads in GQA
         "qk_norm": True,                 # Whether to normalize queries and values in GQA
         "n_kv_groups": 8,                # Key-Value groups for grouped-query attention
         "rope_base": 1_000_000.0,        # The base in RoPE's "theta"
