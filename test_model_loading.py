@@ -13,62 +13,67 @@ from tqdm import tqdm
 
 
 def main_test():
-    model_name = "Qwen1.5-0.5B-Chat"
+    model_name = "Qwen3-0.6B"
     model_dir = Path(f"checkpoints/{model_name}")
-    model, model_name, model_args = load_model(model_dir, strict=True)
+    model_dir = Path("checkpoints/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca")
+    model, model_name, model_args = load_model(model_name, model_dir, strict=True)
     
     # Load the model using Hugging Face
-    hf_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen1.5-0.5B-Chat", torch_dtype="auto", device_map="cpu", trust_remote_code=True, cache_dir="/beegfs/mkherraz")
-
-    for name, param in model.named_parameters():
-        if "lm_head.weight" in name:
-            print(f"Model parameter: {name}, shape: {param.shape}")
+    hf_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B", torch_dtype="auto", trust_remote_code=True, cache_dir="checkpoints")
     
-    for name, hf_param in hf_model.named_parameters():
-        if "lm_head.weight" in name:
-            print(f"Hugging Face model parameter: {name}, shape: {hf_param.shape}")
+    # for name, param in model.named_parameters():
+    #     if "lm_head.weight" in name:
+    #         print(f"Model parameter: {name}, shape: {param.shape}")
     
-    # Compare the names and shapes of parameters
-    model_params = {name: param.shape for name, param in model.named_parameters()}
-    hf_model_params = {name: hf_param.shape for name, hf_param in hf_model.named_parameters()}
+    # for name, hf_param in hf_model.named_parameters():
+    #     if "lm_head.weight" in name:
+    #         print(f"Hugging Face model parameter: {name}, shape: {hf_param.shape}")
     
-    for name, shape in model_params.items():
-        if name in hf_model_params:
-            if shape != hf_model_params[name]:
-                print(f"Parameter '{name}' shape mismatch: {shape} vs {hf_model_params[name]}")
-        elif "lm_head.weight" in name:
-            print(f"Parameter '{name}' not found in Hugging Face model, but it is a lm_head.weight. Copy of {hf_model_params['model.embed_tokens.weight']} will be used.")
-        else:
-            print(f"Parameter '{name}' not found in Hugging Face model.")
+    # # Compare the names and shapes of parameters
+    # model_params = {name: param.shape for name, param in model.named_parameters()}
+    # hf_model_params = {name: hf_param.shape for name, hf_param in hf_model.named_parameters()}
     
-    for name in hf_model_params.keys():
-        if name not in model_params:
-            print(f"Parameter '{name}' not found in custom model.")
+    # for name, shape in model_params.items():
+    #     if name in hf_model_params:
+    #         if shape != hf_model_params[name]:
+    #             print(f"Parameter '{name}' shape mismatch: {shape} vs {hf_model_params[name]}")
+    #     elif "lm_head.weight" in name:
+    #         print(f"Parameter '{name}' not found in Hugging Face model, but it is a lm_head.weight. Copy of {hf_model_params['model.embed_tokens.weight']} will be used.")
+    #     else:
+    #         print(f"Parameter '{name}' not found in Hugging Face model.")
     
-    
+    # for name in hf_model_params.keys():
+    #     if name not in model_params:
+    #         print(f"Parameter '{name}' not found in custom model.")
     
     
-    # Checking values
-    print("Comparing parameter values...")
-    for name, param in model.named_parameters():
-        if "lm_head.weight" not in name:
-            hf_param = hf_model.get_parameter(name)
-            if not torch.allclose(param.float(), hf_param.float(), atol=1e-200, rtol=1e-200):
-                print(f"Parameter '{name}' values do not match between custom model and Hugging Face model.")
-        else:
-            lm_head_weight = hf_model.get_parameter("model.embed_tokens.weight")
-            if not torch.allclose(param.float(), lm_head_weight.float(), atol=1e-200, rtol=1e-200):
-                print(f"Parameter '{name}' values do not match between custom model and Hugging Face model.")
+    
+    
+    # # Checking values
+    # print("Comparing parameter values...")
+    # for name, param in model.named_parameters():
+    #     if "lm_head.weight" not in name:
+    #         hf_param = hf_model.get_parameter(name)
+    #         if not torch.allclose(param.float(), hf_param.float(), atol=1e-200, rtol=1e-200):
+    #             print(f"Parameter '{name}' values do not match between custom model and Hugging Face model.")
+    #     else:
+    #         lm_head_weight = hf_model.get_parameter("model.embed_tokens.weight")
+    #         if not torch.allclose(param.float(), lm_head_weight.float(), atol=1e-200, rtol=1e-200):
+    #             print(f"Parameter '{name}' values do not match between custom model and Hugging Face model.")
 
 
 def test_inference():
-    model_name = "Qwen1.5-0.5B-Chat"
+    model_name = "Qwen3-0.6B"
     model_dir = Path(f"checkpoints/{model_name}")
-    model, model_name, model_args = load_model(model_dir, strict=True)
+    model_dir = Path("checkpoints/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca")
+    model, model_name, model_args = load_model(model_name, model_dir, strict=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+            "Qwen/Qwen3-0.6B", trust_remote_code=True
+        )
     
     # Load the model using Hugging Face
-    hf_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen1.5-0.5B-Chat", torch_dtype="float32", device_map="cpu", trust_remote_code=True)
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen1.5-0.5B-Chat", trust_remote_code=True)
+    hf_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B", torch_dtype="float32", device_map="cpu", trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B", trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
     
     print(hf_model)
@@ -109,5 +114,5 @@ def test_inference():
 
 
 if __name__ == "__main__":
-    # main_test()
-    test_inference()
+    main_test()
+    # test_inference()
