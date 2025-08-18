@@ -45,22 +45,24 @@ class CausalLM(nn.Module):
         )
         self.lm_head = nn.Linear(self.dim, self.n_vocab, bias=False)
 
-        self.start_index = 0
-
-    def forward(self, tokens: torch.Tensor) -> torch.Tensor:
+    def forward(self, tokens: torch.Tensor, mask=None) -> torch.Tensor:
         assert tokens.ndim <= 2
         while tokens.ndim < 2:
             tokens = tokens.unsqueeze(0)
         _, L = tokens.shape
+        
+        if not mask:
+            mask = torch.zeros((tokens.shape[0], 1, tokens.shape[1], tokens.shape[1]), dtype=torch.bool)
+            mask = torch.triu(torch.ones(tokens.shape[1], tokens.shape[1], device=tokens.device, dtype=torch.bool), diagonal=1)
 
         h = self.model["embed_tokens"](tokens)  # [B, L] --> [B, L, D]
+        
+        
         for layer in self.model["layers"]:
-            h = layer(h, self.start_index)  # [B, L, D] --> [B, L, D]
+            h = layer(h, mask)  # [B, L, D] --> [B, L, D]
         h = self.model["norm"](h)  # [B, L, D] --> [B, L, D]
 
         logits = self.lm_head(h)  # [B, L, D] --> [B, L, n_vocab]
-
-        self.start_index += L
         return logits
 
     @staticmethod
