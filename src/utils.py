@@ -119,16 +119,17 @@ MODEL_ARGS_MAP = {
     ),
     "Qwen3-0.6B": ModelArgs(
         llm_type="qwen",
-        n_vocab=151936,
+        n_vocab=151_936,
         dim=1024,
         n_layers=28,
         n_heads=16,
         n_kv_heads=8,
+        qk_rms_norm=True,
         ffn_hidden_dim=3072,
         norm_eps=1e-6,
-        rope_theta=1000000.0,
-        max_batch_size=1,
-        max_seq_len=40960,  # 32768,
+        rope_theta=1_000_000.0,
+        max_batch_size=2,
+        max_seq_len=40_960,  # 32768,
     )
 }
 
