@@ -119,7 +119,9 @@ class FeedForward(nn.Module):
         self.up_proj = nn.Linear(self.dim, self.hidden_dim, bias=False, dtype=self.tensor_type)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x.to(self.tensor_type)
+        # print(f"types ff {self.gate_proj.weight.dtype}, {x.dtype}")
+        
+        # x = x.to(self.tensor_type)
         
         # [B, L, D] --> [B, L, hD]
         x1, x2 = F.silu(self.gate_proj(x)), self.up_proj(x)
