@@ -1,5 +1,6 @@
 from typing import Literal, Optional
 from pydantic import BaseModel
+import torch
 
 
 class ModelArgs(BaseModel):
@@ -24,3 +25,17 @@ class ModelArgs(BaseModel):
     # other
     max_batch_size: int = 1
     max_seq_len: int = 2048
+    d_type : Literal["f16", "f32", "bf16"] = "f32"  # Data type for model parameters
+
+
+
+
+def get_dtype(dtype: str) -> torch.dtype:
+    if dtype == "f16":
+        return torch.float16
+    elif dtype == "f32":
+        return torch.float32
+    elif dtype == "bf16":
+        return torch.bfloat16
+    else:
+        raise ValueError(f"Unsupported dtype: {dtype}")
