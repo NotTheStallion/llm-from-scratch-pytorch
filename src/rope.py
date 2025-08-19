@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent))
 
-from model_args import ModelArgs
+from model_args import ModelArgs, get_dtype
 import numpy as np
 
 def positional_encoding(L, d, n=10000):
@@ -20,7 +20,7 @@ def positional_encoding(L, d, n=10000):
 
 class Rotary(nn.Module):
 
-  def __init__(self, args: ModelArgs, dtype=torch.float32):
+  def __init__(self, args: ModelArgs):
 
     super().__init__()
     self.base = args.rope_theta
@@ -32,11 +32,11 @@ class Rotary(nn.Module):
     self.cos_cached = None
     self.sin_cached = None
     
-    self._build_cache(dtype=dtype)
+    self._build_cache(dtype=get_dtype(args.d_type))
 
   def _build_cache(self, dtype=torch.float32):
     seq_len = self.max_seq_len
-    theta = 1. / (self.base ** (torch.arange(0, self.rope_dim, 2, dtype=dtype) / self.rope_dim)) # THETA = 10,000^(-2*i/d) or 1/10,000^(2i/d)
+    theta = 1. / (self.base ** (torch.arange(0, self.rope_dim, 2, dtype=dtype).float() / self.rope_dim)) # THETA = 10,000^(-2*i/d) or 1/10,000^(2i/d)
     pos = torch.arange(seq_len, dtype=dtype) #Position Index -> [0,1,2...seq-1]
     angles = pos[:, None] * theta[None, :]  # (max_seq_len, head_dim // 2)
     angles = torch.cat([angles, angles], dim=1)  # (max_seq_len, head_dim)
@@ -59,7 +59,7 @@ class Rotary(nn.Module):
     
     neg_half_x = self._neg_half(x)
     x_rope = (x * self.cos_cached[:, :, :x.shape[2], :]) + (neg_half_x * self.sin_cached[:, :, :x.shape[2], :])  # [x_1*cosTHETA_1 - x_d/2*sinTHETA_d/2, ....]
-    return x_rope
+    return x_rope.to(x.dtype)
 
 
 
