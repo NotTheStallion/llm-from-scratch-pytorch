@@ -135,6 +135,14 @@ class CausalLM(nn.Module):
                 self.model["layers"][i].self_attn.o_proj.weight = nn.Parameter(
                     layer_state_dict.pop("self_attn.o_proj.weight")
                 )
+                
+                # QK norms
+                self.model["layers"][i].self_attn.q_norm.weight = nn.Parameter(
+                    layer_state_dict.pop("self_attn.q_norm.weight")
+                )
+                self.model["layers"][i].self_attn.k_norm.weight = nn.Parameter(
+                    layer_state_dict.pop("self_attn.k_norm.weight")
+                )
             else:
                 raise ValueError(f"Layer {i} not found in state_dict.")
         
