@@ -131,7 +131,7 @@ MODEL_ARGS_MAP = {
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
-        dtype=torch.bfloat16,
+        dtype=torch.float32,
     )
 }
 
