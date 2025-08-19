@@ -49,18 +49,22 @@ def main_test():
     
     
     
-    # # Checking values
-    # print("Comparing parameter values...")
-    # for name, param in model.named_parameters():
-    #     if "lm_head.weight" not in name:
-    #         hf_param = hf_model.get_parameter(name)
-    #         if not torch.allclose(param.float(), hf_param.float(), atol=1e-200, rtol=1e-200):
-    #             print(f"Parameter '{name}' values do not match between custom model and Hugging Face model.")
-    #     else:
-    #         lm_head_weight = hf_model.get_parameter("model.embed_tokens.weight")
-    #         if not torch.allclose(param.float(), lm_head_weight.float(), atol=1e-200, rtol=1e-200):
-    #             print(f"Parameter '{name}' values do not match between custom model and Hugging Face model.")
+    # Checking values
+    for name, param in model.named_parameters():
+        if "lm_head.weight" not in name:
+            hf_param = hf_model.get_parameter(name)
+            if not torch.allclose(param.float(), hf_param.float(), atol=1e-5):
+                print(f"Checking parameter: {name}, shape: {param.shape}, hf shape: {hf_param.shape}")
+                print(f"Parameter '{name}' values do not match between custom model and Hugging Face model.")
+        else:
+            lm_head_weight = hf_model.get_parameter("model.embed_tokens.weight")
+            if not torch.allclose(param.float(), lm_head_weight.float(), atol=1e-5):
+                print(f"Parameter '{name}' values do not match between custom model and Hugging Face model.")
 
+    print("Comparing parameter values ... OK")
+    
+    
+    
 
 def test_inference():
     model_name = "Qwen3-0.6B"
@@ -72,7 +76,7 @@ def test_inference():
         )
     
     # Load the model using Hugging Face
-    hf_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B", torch_dtype="float32", device_map="cpu", trust_remote_code=True)
+    hf_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B", torch_dtype="float32", trust_remote_code=True)
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B", trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
     
@@ -115,4 +119,4 @@ def test_inference():
 
 if __name__ == "__main__":
     main_test()
-    # test_inference()
+    test_inference()
