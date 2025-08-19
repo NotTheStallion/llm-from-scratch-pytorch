@@ -97,7 +97,7 @@ class SelfAttention(nn.Module):
         attn_scores = attn_scores.masked_fill(mask, -torch.inf)
         attn_weights = torch.softmax(attn_scores / self.d_head**0.5, dim=-1)
 
-        output = (attn_weights @ v).transpose(1, 2).reshape(B, L, D)
+        output = (attn_weights @ v).transpose(1, 2).reshape(B, L, self.n_heads * self.d_head)
 
         # [B, L, D] --> [B, L, D]
         return self.o_proj(output)
