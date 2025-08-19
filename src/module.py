@@ -17,6 +17,7 @@ class EncoderBlock(nn.Module):
     def __init__(self, args: ModelArgs):
         super().__init__()
         self.args = args
+        self.dtype = get_dtype(args.d_type)
 
         self.self_attn = SelfAttention(args)
         self.mlp = FeedForward(args)
@@ -24,6 +25,8 @@ class EncoderBlock(nn.Module):
         self.post_attention_layernorm = nn.RMSNorm(args.dim, eps=args.norm_eps)
 
     def forward(self, x: torch.Tensor, mask) -> torch.Tensor:
+        x = x.to(self.dtype)  # Ensure input is in the same dtype as the weights
+        
         # [B, L, D] --> [B, L, D]
         x = x + self.self_attn(self.input_layernorm(x), mask)
         x = x + self.mlp(self.post_attention_layernorm(x))
@@ -39,11 +42,13 @@ class SelfAttention(nn.Module):
             self.n_kv_heads = self.n_heads
         if self.d_head is None:
             self.d_head = args.dim // args.n_heads
+        
+        self.dtype = get_dtype(args.d_type)
 
-        self.q_proj = nn.Linear(args.dim, self.n_heads * self.d_head, bias=False)
-        self.k_proj = nn.Linear(args.dim, self.n_kv_heads * self.d_head, bias=False)
-        self.v_proj = nn.Linear(args.dim, self.n_kv_heads * self.d_head, bias=False)
-        self.o_proj = nn.Linear(self.n_heads * self.d_head, args.dim, bias=False)
+        self.q_proj = nn.Linear(args.dim, self.n_heads * self.d_head, bias=False, dtype=self.dtype)
+        self.k_proj = nn.Linear(args.dim, self.n_kv_heads * self.d_head, bias=False, dtype=self.dtype)
+        self.v_proj = nn.Linear(args.dim, self.n_kv_heads * self.d_head, bias=False, dtype=self.dtype)
+        self.o_proj = nn.Linear(self.n_heads * self.d_head, args.dim, bias=False, dtype=self.dtype)
         
         self.custom_rope = Rotary(args)
         
@@ -55,6 +60,7 @@ class SelfAttention(nn.Module):
 
     def forward(self, x: torch.Tensor, mask: int) -> torch.Tensor:
         # x: [B, L, D]
+        x = x.to(self.dtype)  # Ensure input is in the same dtype as the weights
         B, L, D = x.shape
         # pe = positional_encoding(L, D)
         # x += pe.unsqueeze(0)
@@ -98,7 +104,7 @@ class SelfAttention(nn.Module):
         attn_weights = torch.softmax(attn_scores / self.d_head**0.5, dim=-1)
 
         # * temp fix
-        attn_weights = attn_weights.to(v.dtype)  # Ensure attn_weights matches v dtype
+        # attn_weights = attn_weights.to(v.dtype)  # Ensure attn_weights matches v dtype
         output = (attn_weights @ v).transpose(1, 2).reshape(B, L, self.n_heads * self.d_head)
 
         # [B, L, D] --> [B, L, D]
@@ -115,13 +121,13 @@ class FeedForward(nn.Module):
         self.tensor_type = get_dtype(args.d_type)
 
         self.gate_proj = nn.Linear(self.dim, self.hidden_dim, bias=False, dtype=self.tensor_type)
-        self.down_proj = nn.Linear(self.hidden_dim, self.dim, bias=False, dtype=self.tensor_type)
         self.up_proj = nn.Linear(self.dim, self.hidden_dim, bias=False, dtype=self.tensor_type)
+        self.down_proj = nn.Linear(self.hidden_dim, self.dim, bias=False, dtype=self.tensor_type)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # print(f"types ff {self.gate_proj.weight.dtype}, {x.dtype}")
         
-        # x = x.to(self.tensor_type)
+        x = x.to(self.tensor_type)
         
         # [B, L, D] --> [B, L, hD]
         x1, x2 = F.silu(self.gate_proj(x)), self.up_proj(x)
