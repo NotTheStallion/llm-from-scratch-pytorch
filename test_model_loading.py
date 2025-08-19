@@ -250,41 +250,82 @@ def main_test():
     
 
 def test_inference():
+    import json
+    import os
+    from pathlib import Path
+    from safetensors.torch import load_file
+    from huggingface_hub import hf_hub_download, snapshot_download
+
+    QWEN3_CONFIG = {
+        "vocab_size": 151_936,           # Vocabulary size
+        "context_length": 40_960,        # Context length that was used to train the model
+        "emb_dim": 1024,                 # Embedding dimension
+        "n_heads": 16,                   # Number of attention heads
+        "n_layers": 28,                  # Number of layers
+        "hidden_dim": 3072,              # Size of the intermediate dimension in FeedForward
+        "head_dim": 128,                 # Size of the heads in GQA
+        "qk_norm": True,                 # Whether to normalize queries and values in GQA
+        "n_kv_groups": 8,                # Key-Value groups for grouped-query attention
+        "rope_base": 1_000_000.0,        # The base in RoPE's "theta"
+        "dtype": torch.bfloat16,         # Lower-precision dtype to reduce memory usage
+    }
+    
+    
+    
+    
     model_name = "Qwen3-0.6B"
-    model_dir = Path(f"checkpoints/{model_name}")
-    model_dir = Path("checkpoints/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca")
+    repo_id = "Qwen/Qwen3-0.6B"
+    local_dir = "checkpoints"
+    weights_file = hf_hub_download(
+        repo_id=repo_id,
+        filename="model.safetensors",
+        local_dir=local_dir,
+    )
+    
+    print(f"Loading model from {weights_file}")
+    
+    
+    # model_dir = Path(f"checkpoints/{model_name}")
+    model_dir = Path(weights_file).parent
     model, model_name, model_args = load_model(model_name, model_dir, strict=True)
     tokenizer = AutoTokenizer.from_pretrained(
-            "Qwen/Qwen3-0.6B", trust_remote_code=True
+            repo_id, trust_remote_code=True
         )
-    
-    # Load the model using Hugging Face
-    hf_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B", torch_dtype="bfloat16", trust_remote_code=True)
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B", trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
+
+    print(model)
     
-    print(hf_model)
+    # Load the GT model
+    gt_model = Qwen3Model(QWEN3_CONFIG)
+
+    weights_dict = load_file(weights_file)
+
+    load_weights_into_qwen(gt_model, QWEN3_CONFIG, weights_dict)
+    gt_model.to("cpu")
+    
+    print(gt_model)
 
     prompt = "Where is china ?"
     
     input_ids = tokenizer(prompt, return_tensors="pt")["input_ids"].to("cpu")
     
     print(input_ids)
-    hf_logits = hf_model.forward(input_ids).logits
-    print(f"Hugging Face logits shape: {hf_logits.shape}")
+    # print(gt_model.forward(input_ids))
+    gt_logits = gt_model.forward(input_ids)
+    print(f"Hugging Face logits shape: {gt_logits.shape}")
     
     logits = model.forward(input_ids)
     print(f"Custom model logits shape: {logits.shape}")
     
     # Take the last logits vector and apply softmax
-    hf_probs = torch.softmax(hf_logits[0, -1], dim=-1)
+    hf_probs = torch.softmax(gt_logits[0, -1], dim=-1)
     custom_probs = torch.softmax(logits[0, -1], dim=-1)
     
     print(hf_probs[:10])  # Print the first 10 probabilities from Hugging Face model
     print(custom_probs[:10])  # Print the first 10 probabilities from custom model
     
     # Compute the average difference, min, and max in probabilities for all logits
-    hf_probs_all = torch.softmax(hf_logits, dim=-1)
+    hf_probs_all = torch.softmax(gt_logits, dim=-1)
     custom_probs_all = torch.softmax(logits, dim=-1)
     
     diff = torch.abs(hf_probs_all - custom_probs_all)
@@ -302,5 +343,5 @@ def test_inference():
 
 if __name__ == "__main__":
     # main_test()
-    # test_inference()
-    load_custom_and_gt_model()
+    test_inference()
+    # load_custom_and_gt_model()
