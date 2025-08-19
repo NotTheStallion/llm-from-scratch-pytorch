@@ -36,6 +36,9 @@ def get_dtype(dtype: str) -> torch.dtype:
     elif dtype == "f32":
         return torch.float32
     elif dtype == "bf16":
-        return torch.bfloat16
+        if torch.cuda.is_bf16_supported():
+            return torch.bfloat16
+        else:
+            raise ValueError("bfloat16 is not supported on this device.")
     else:
         raise ValueError(f"Unsupported dtype: {dtype}")
