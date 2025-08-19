@@ -11,7 +11,7 @@ sys.path.append(str(Path(__file__).parent))
 
 from attention import scaled_dot_product_attention
 from rope import positional_encoding, Rotary
-from model_args import ModelArgs
+from model_args import ModelArgs, get_dtype
 
 class EncoderBlock(nn.Module):
     def __init__(self, args: ModelArgs):
@@ -97,6 +97,8 @@ class SelfAttention(nn.Module):
         attn_scores = attn_scores.masked_fill(mask, -torch.inf)
         attn_weights = torch.softmax(attn_scores / self.d_head**0.5, dim=-1)
 
+        # * temp fix
+        attn_weights = attn_weights.to(v.dtype)  # Ensure attn_weights matches v dtype
         output = (attn_weights @ v).transpose(1, 2).reshape(B, L, self.n_heads * self.d_head)
 
         # [B, L, D] --> [B, L, D]
@@ -109,12 +111,16 @@ class FeedForward(nn.Module):
         self.llm_type = args.llm_type
         self.dim = args.dim
         self.hidden_dim = args.ffn_hidden_dim
+        
+        self.tensor_type = get_dtype(args.d_type)
 
-        self.gate_proj = nn.Linear(self.dim, self.hidden_dim, bias=False)
-        self.down_proj = nn.Linear(self.hidden_dim, self.dim, bias=False)
-        self.up_proj = nn.Linear(self.dim, self.hidden_dim, bias=False)
+        self.gate_proj = nn.Linear(self.dim, self.hidden_dim, bias=False, dtype=self.tensor_type)
+        self.down_proj = nn.Linear(self.hidden_dim, self.dim, bias=False, dtype=self.tensor_type)
+        self.up_proj = nn.Linear(self.dim, self.hidden_dim, bias=False, dtype=self.tensor_type)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.to(self.tensor_type)
+        
         # [B, L, D] --> [B, L, hD]
         x1, x2 = F.silu(self.gate_proj(x)), self.up_proj(x)
         # [B, L, hD] --> [B, L, D]
