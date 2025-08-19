@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import RMSNorm as CustomRMSNorm
+from src.model_args import ModelArgs, get_dtype
 
 
 class FeedForward(nn.Module):
@@ -11,6 +12,10 @@ class FeedForward(nn.Module):
         self.fc3 = nn.Linear(cfg["hidden_dim"], cfg["emb_dim"], dtype=cfg["dtype"], bias=False)
 
     def forward(self, x):
+        # * added line
+        x = x.to(self.fc1.weight.dtype)  # Ensure input is in the same dtype as the weights
+        
+        print(f"types ff {self.fc1.weight.dtype}, {x.dtype}")
         x_fc1 = self.fc1(x)
         x_fc2 = self.fc2(x)
         x = nn.functional.silu(x_fc1) * x_fc2
@@ -101,6 +106,7 @@ class GroupedQueryAttention(nn.Module):
 
         self.head_dim = head_dim
         self.d_out = num_heads * head_dim
+        self.dtype = dtype if dtype is not None else torch.float32
 
         self.W_query = nn.Linear(d_in, self.d_out, bias=False, dtype=dtype)
         self.W_key = nn.Linear(d_in, num_kv_groups * head_dim, bias=False, dtype=dtype)
@@ -116,8 +122,11 @@ class GroupedQueryAttention(nn.Module):
 
     def forward(self, x, mask, cos, sin):
         b, num_tokens, d = x.shape
+        # * added line
+        # x = x.to(self.dtype)  # Ensure input is in the same dtype as the weights
 
         # Apply projections
+        print(f"types gqa {self.W_query.weight.dtype}, {x.dtype}")
         queries = self.W_query(x)  # (b, num_tokens, num_heads * head_dim)
         keys = self.W_key(x)       # (b, num_tokens, num_kv_groups * head_dim)
         values = self.W_value(x)   # (b, num_tokens, num_kv_groups * head_dim)
@@ -231,8 +240,8 @@ class Qwen3Model(nn.Module):
         # * Ensure the output head is in the same dtype as the input
         # self.out_head.weight.data = self.out_head.weight.data.to(x.dtype)  # Ensure dtype consistency
         # print(f"Output head dtype: {self.out_head.weight.dtype}, Input dtype: {x.dtype}")
-        # logits = self.out_head(x.to(self.cfg["dtype"]))
-        logits = self.out_head(x)
+        logits = self.out_head(x.to(self.cfg["dtype"]))
+        # logits = self.out_head(x)
         return logits
 
 
@@ -254,12 +263,13 @@ def test_rope():
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
+        d_type="bf16"
     )
 
     rotary = Rotary(model_args)
 
     context_length = model_args.max_seq_len
-    cos, sin = compute_rope_params(model_args.d_head, theta_base=model_args.rope_theta, context_length=context_length)
+    cos, sin = compute_rope_params(model_args.d_head, theta_base=model_args.rope_theta, context_length=context_length, dtype=get_dtype(model_args.d_type))
 
     x = torch.randn(2, 8, model_args.max_seq_len, model_args.d_head)  # (batch_size, num_heads, seq_len, head_dim)
     
@@ -309,12 +319,13 @@ def test_grouped_query_attention():
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
+        d_type="bf16"
     )
 
     b, num_tokens, d_in = 2, 10, model_args.dim
     x = torch.randn(b, num_tokens, d_in)
 
-    cos, sin = compute_rope_params(model_args.d_head, theta_base=model_args.rope_theta, context_length=model_args.max_seq_len)
+    cos, sin = compute_rope_params(model_args.d_head, theta_base=model_args.rope_theta, context_length=model_args.max_seq_len, dtype=get_dtype(model_args.d_type))
     
     mask = torch.zeros((b, 1, num_tokens, num_tokens), dtype=torch.bool)
 
@@ -322,7 +333,8 @@ def test_grouped_query_attention():
         d_in=model_args.dim,
         num_heads=model_args.n_heads,
         num_kv_groups=model_args.n_kv_heads,
-        head_dim=model_args.d_head
+        head_dim=model_args.d_head,
+        dtype=get_dtype(model_args.d_type)
     )
 
     
@@ -363,6 +375,7 @@ def test_grouped_query_attention():
 
 def test_gqa_rms_norm():
     from src.utils import ModelArgs
+    from src.model_args import get_dtype
 
     model_args = ModelArgs(
         llm_type="qwen",
@@ -378,6 +391,7 @@ def test_gqa_rms_norm():
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
+        d_type="bf16"
     )
 
     b, num_tokens, d_in = 2, 10, model_args.dim
@@ -392,7 +406,8 @@ def test_gqa_rms_norm():
         num_heads=model_args.n_heads,
         num_kv_groups=model_args.n_kv_heads,
         head_dim=model_args.d_head,
-        qk_norm=model_args.qk_rms_norm
+        qk_norm=model_args.qk_rms_norm,
+        dtype=get_dtype(model_args.d_type)
     )
 
     
@@ -448,12 +463,13 @@ def test_mlp():
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
+        d_type="bf16"
     )
     
     cfg = {
         "emb_dim": model_args.dim,
         "hidden_dim": model_args.ffn_hidden_dim,
-        "dtype": torch.float32
+        "dtype": get_dtype(model_args.d_type)  # Use the utility function to get the correct dtype
     }
     
     mlp = FeedForward(cfg)
@@ -500,6 +516,7 @@ def test_block():
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
+        d_type="bf16"
     )
     
     cfg = {
@@ -513,9 +530,9 @@ def test_block():
     }
 
     b, num_tokens, d_in = 2, 10, model_args.dim
-    x = torch.randn(b, num_tokens, d_in)
+    x = torch.randn(b, num_tokens, d_in)  # (batch_size, num_tokens, emb_dim)
 
-    cos, sin = compute_rope_params(model_args.d_head, context_length=model_args.max_seq_len)
+    cos, sin = compute_rope_params(model_args.d_head, context_length=model_args.max_seq_len, dtype=get_dtype(model_args.d_type))
 
     mask = torch.zeros((b, 1, num_tokens, num_tokens), dtype=torch.bool)
 
@@ -564,6 +581,7 @@ def test_causal_lm():
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
+        d_type="bf16"
     )
     
     cfg = {
