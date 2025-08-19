@@ -15,7 +15,7 @@ class FeedForward(nn.Module):
         # * added line
         x = x.to(self.fc1.weight.dtype)  # Ensure input is in the same dtype as the weights
         
-        print(f"types ff {self.fc1.weight.dtype}, {x.dtype}")
+        # print(f"types ff {self.fc1.weight.dtype}, {x.dtype}")
         x_fc1 = self.fc1(x)
         x_fc2 = self.fc2(x)
         x = nn.functional.silu(x_fc1) * x_fc2
@@ -126,7 +126,7 @@ class GroupedQueryAttention(nn.Module):
         # x = x.to(self.dtype)  # Ensure input is in the same dtype as the weights
 
         # Apply projections
-        print(f"types gqa {self.W_query.weight.dtype}, {x.dtype}")
+        # print(f"types gqa {self.W_query.weight.dtype}, {x.dtype}")
         queries = self.W_query(x)  # (b, num_tokens, num_heads * head_dim)
         keys = self.W_key(x)       # (b, num_tokens, num_kv_groups * head_dim)
         values = self.W_value(x)   # (b, num_tokens, num_kv_groups * head_dim)
