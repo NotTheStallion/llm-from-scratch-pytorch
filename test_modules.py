@@ -68,10 +68,12 @@ def apply_rope(x, cos, sin):
 class RMSNorm(nn.Module):
     def __init__(self, emb_dim, eps=1e-6, bias=False, qwen3_compatible=True):
         super().__init__()
+        # TODO : connect to cfg dict
+        self.dtype = torch.float16
         self.eps = eps
         self.qwen3_compatible = qwen3_compatible
-        self.scale = nn.Parameter(torch.ones(emb_dim))
-        self.shift = nn.Parameter(torch.zeros(emb_dim)) if bias else None
+        self.scale = nn.Parameter(torch.ones(emb_dim, dtype=self.dtype))
+        self.shift = nn.Parameter(torch.zeros(emb_dim, dtype=self.dtype)) if bias else None
 
     def forward(self, x):
         input_dtype = x.dtype
@@ -121,6 +123,9 @@ class GroupedQueryAttention(nn.Module):
             self.q_norm = self.k_norm = None
 
     def forward(self, x, mask, cos, sin):
+        # * added line
+        x = x.to(self.dtype)  # Ensure input is in the same dtype as the
+        
         b, num_tokens, d = x.shape
         # * added line
         # x = x.to(self.dtype)  # Ensure input is in the same dtype as the weights
@@ -177,8 +182,11 @@ class TransformerBlock(nn.Module):
         self.ff = FeedForward(cfg)
         self.norm1 = RMSNorm(cfg["emb_dim"], eps=1e-6)
         self.norm2 = RMSNorm(cfg["emb_dim"], eps=1e-6)
+        self.dtype = cfg["dtype"]
 
     def forward(self, x, mask, cos, sin):
+        x = x.to(self.dtype)  # Ensure input is in the same dtype as the weights
+        
         # Shortcut connection for attention block
         shortcut = x
         x = self.norm1(x)
@@ -198,6 +206,8 @@ class TransformerBlock(nn.Module):
 class Qwen3Model(nn.Module):
     def __init__(self, cfg):
         super().__init__()
+        
+        print("TYPE =========> ", cfg["dtype"])
 
         # Main model parameters
         self.tok_emb = nn.Embedding(cfg["vocab_size"], cfg["emb_dim"], dtype=cfg["dtype"])
@@ -208,6 +218,7 @@ class Qwen3Model(nn.Module):
 
         self.final_norm = RMSNorm(cfg["emb_dim"])
         self.out_head = nn.Linear(cfg["emb_dim"], cfg["vocab_size"], bias=False, dtype=cfg["dtype"])
+        print(f"Output head dtype: {self.out_head.weight.dtype}, Input dtype: {cfg['dtype']}")
 
         # Reusuable utilities
         if cfg["head_dim"] is None:
@@ -229,6 +240,8 @@ class Qwen3Model(nn.Module):
         tok_embeds = self.tok_emb(in_idx)
         x = tok_embeds
         
+        # * added line
+        x = x.to(self.cfg["dtype"])
 
         num_tokens = x.shape[1]
         mask = torch.triu(torch.ones(num_tokens, num_tokens, device=x.device, dtype=torch.bool), diagonal=1)
@@ -239,7 +252,7 @@ class Qwen3Model(nn.Module):
         
         # * Ensure the output head is in the same dtype as the input
         # self.out_head.weight.data = self.out_head.weight.data.to(x.dtype)  # Ensure dtype consistency
-        # print(f"Output head dtype: {self.out_head.weight.dtype}, Input dtype: {x.dtype}")
+        print(f"Output head dtype: {self.out_head.weight.dtype}, Input dtype: {x.dtype}")
         logits = self.out_head(x.to(self.cfg["dtype"]))
         # logits = self.out_head(x)
         return logits
@@ -263,7 +276,7 @@ def test_rope():
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
-        d_type="bf16"
+        d_type="f16"
     )
 
     rotary = Rotary(model_args)
@@ -271,7 +284,7 @@ def test_rope():
     context_length = model_args.max_seq_len
     cos, sin = compute_rope_params(model_args.d_head, theta_base=model_args.rope_theta, context_length=context_length, dtype=get_dtype(model_args.d_type))
 
-    x = torch.randn(2, 8, model_args.max_seq_len, model_args.d_head)  # (batch_size, num_heads, seq_len, head_dim)
+    x = torch.randn(2, 8, model_args.max_seq_len, model_args.d_head, dtype=get_dtype(model_args.d_type))  # (batch_size, num_heads, seq_len, head_dim)
     
     x_rotated = apply_rope(x, cos, sin)
     custom_rotated = rotary.forward(x)
@@ -319,11 +332,11 @@ def test_grouped_query_attention():
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
-        d_type="bf16"
+        d_type="f16"
     )
 
     b, num_tokens, d_in = 2, 10, model_args.dim
-    x = torch.randn(b, num_tokens, d_in)
+    x = torch.randn(b, num_tokens, d_in, dtype=get_dtype(model_args.d_type))
 
     cos, sin = compute_rope_params(model_args.d_head, theta_base=model_args.rope_theta, context_length=model_args.max_seq_len, dtype=get_dtype(model_args.d_type))
     
@@ -391,11 +404,11 @@ def test_gqa_rms_norm():
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
-        d_type="bf16"
+        d_type="f16"
     )
 
     b, num_tokens, d_in = 2, 10, model_args.dim
-    x = torch.randn(b, num_tokens, d_in)
+    x = torch.randn(b, num_tokens, d_in, dtype=get_dtype(model_args.d_type))
 
     cos, sin = compute_rope_params(model_args.d_head, context_length=model_args.max_seq_len)
 
@@ -463,7 +476,7 @@ def test_mlp():
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
-        d_type="bf16"
+        d_type="f16"
     )
     
     cfg = {
@@ -488,7 +501,7 @@ def test_mlp():
     mlp.fc3.weight.data = custom_mlp.down_proj.weight.data
     
     
-    x = torch.randn(2, 10, model_args.dim)  # (batch_size, num_tokens, emb_dim)
+    x = torch.randn(2, 10, model_args.dim, dtype=get_dtype(model_args.d_type))  # (batch_size, num_tokens, emb_dim)
     output_mlp = mlp(x)
     custom_output_mlp = custom_mlp(x)
     
@@ -516,7 +529,7 @@ def test_block():
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
-        d_type="bf16"
+        d_type="f16"
     )
     
     cfg = {
@@ -526,7 +539,7 @@ def test_block():
         "head_dim": model_args.d_head,
         "qk_norm": model_args.qk_rms_norm,
         "hidden_dim": model_args.ffn_hidden_dim,
-        "dtype": torch.float32
+        "dtype": get_dtype(model_args.d_type),  # Use the utility function to get the correct dtype
     }
 
     b, num_tokens, d_in = 2, 10, model_args.dim
@@ -556,6 +569,8 @@ def test_block():
     output_block = block(x, mask, cos, sin)
     custom_block_output_block = custom_block(x, mask)
     
+    print(f"type compare: {output_block.dtype}, {custom_block_output_block.dtype}")
+    
     assert output_block.shape == custom_block_output_block.shape, f"Shape mismatch: {output_block.shape} != {custom_block_output_block.shape}"
     assert torch.allclose(output_block, custom_block_output_block, atol=1e-5), "Output values do not match between TransformerBlock and custom EncoderBlock"    
 
@@ -581,7 +596,7 @@ def test_causal_lm():
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
-        d_type="bf16"
+        d_type="f16"
     )
     
     cfg = {
@@ -595,7 +610,7 @@ def test_causal_lm():
         "qk_norm": True,                 # Whether to normalize queries and values in GQA
         "n_kv_groups": 8,                # Key-Value groups for grouped-query attention
         "rope_base": 1_000_000.0,        # The base in RoPE's "theta"
-        "dtype": None,         # Lower-precision dtype to reduce memory usage
+        "dtype": get_dtype(model_args.d_type),         # Lower-precision dtype to reduce memory usage
     }
     
     gt_model = Qwen3Model(cfg)
@@ -616,10 +631,11 @@ def test_causal_lm():
 
     
     num_tokens = 10
-    x = torch.randint(0, model_args.n_vocab, (model_args.max_batch_size, num_tokens), dtype=torch.int64)  # (batch_size, num_tokens)
+    x = torch.randint(0, model_args.n_vocab, (model_args.max_batch_size, num_tokens))  # (batch_size, num_tokens)
     print(f"Input shape: {x.shape}")
 
-    
+    for name, param in gt_model.named_parameters():
+        print(f"Parameter: {name}, Type: {param.dtype}")
     
     logits = gt_model(x)
     custom_logits = custom_model(x)
