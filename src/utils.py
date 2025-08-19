@@ -122,6 +122,7 @@ MODEL_ARGS_MAP = {
         n_vocab=151_936,
         dim=1024,
         n_layers=28,
+        d_head=128,
         n_heads=16,
         n_kv_heads=8,
         qk_rms_norm=True,
@@ -130,6 +131,7 @@ MODEL_ARGS_MAP = {
         rope_theta=1_000_000.0,
         max_batch_size=2,
         max_seq_len=40_960,  # 32768,
+        dtype=torch.bfloat16,
     )
 }
 
