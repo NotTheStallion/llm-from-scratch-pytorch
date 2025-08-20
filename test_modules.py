@@ -14,8 +14,7 @@ class FeedForward(nn.Module):
     def forward(self, x):
         # * added line
         x = x.to(self.fc1.weight.dtype)  # Ensure input is in the same dtype as the weights
-        
-        # print(f"types ff {self.fc1.weight.dtype}, {x.dtype}")
+    
         x_fc1 = self.fc1(x)
         x_fc2 = self.fc2(x)
         x = nn.functional.silu(x_fc1) * x_fc2
@@ -68,12 +67,10 @@ def apply_rope(x, cos, sin):
 class RMSNorm(nn.Module):
     def __init__(self, emb_dim, eps=1e-6, bias=False, qwen3_compatible=True):
         super().__init__()
-        # TODO : connect to cfg dict
-        self.dtype = torch.float16
         self.eps = eps
         self.qwen3_compatible = qwen3_compatible
-        self.scale = nn.Parameter(torch.ones(emb_dim, dtype=self.dtype))
-        self.shift = nn.Parameter(torch.zeros(emb_dim, dtype=self.dtype)) if bias else None
+        self.scale = nn.Parameter(torch.ones(emb_dim))
+        self.shift = nn.Parameter(torch.zeros(emb_dim)) if bias else None
 
     def forward(self, x):
         input_dtype = x.dtype
@@ -131,7 +128,6 @@ class GroupedQueryAttention(nn.Module):
         # x = x.to(self.dtype)  # Ensure input is in the same dtype as the weights
 
         # Apply projections
-        # print(f"types gqa {self.W_query.weight.dtype}, {x.dtype}")
         queries = self.W_query(x)  # (b, num_tokens, num_heads * head_dim)
         keys = self.W_key(x)       # (b, num_tokens, num_kv_groups * head_dim)
         values = self.W_value(x)   # (b, num_tokens, num_kv_groups * head_dim)
@@ -150,9 +146,6 @@ class GroupedQueryAttention(nn.Module):
         # Apply RoPE
         queries = apply_rope(queries, cos, sin)
         keys = apply_rope(keys, cos, sin)
-        
-        # print(f"cos debug : {cos[:5, :10]}")
-        # print(f"queries debug : {queries[0, 0, :5, :10]}")
 
         # Expand K and V to match number of heads
         keys = keys.repeat_interleave(self.group_size, dim=1)
@@ -207,8 +200,6 @@ class Qwen3Model(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         
-        print("TYPE =========> ", cfg["dtype"])
-
         # Main model parameters
         self.tok_emb = nn.Embedding(cfg["vocab_size"], cfg["emb_dim"], dtype=cfg["dtype"])
 
@@ -218,7 +209,6 @@ class Qwen3Model(nn.Module):
 
         self.final_norm = RMSNorm(cfg["emb_dim"])
         self.out_head = nn.Linear(cfg["emb_dim"], cfg["vocab_size"], bias=False, dtype=cfg["dtype"])
-        print(f"Output head dtype: {self.out_head.weight.dtype}, Input dtype: {cfg['dtype']}")
 
         # Reusuable utilities
         if cfg["head_dim"] is None:
@@ -248,13 +238,11 @@ class Qwen3Model(nn.Module):
         
         for block in self.trf_blocks:
             x = block(x, mask, self.cos, self.sin)
-        x = self.final_norm(x)
+        x = self.final_norm(x).to(self.cfg["dtype"])
         
         # * Ensure the output head is in the same dtype as the input
-        # self.out_head.weight.data = self.out_head.weight.data.to(x.dtype)  # Ensure dtype consistency
-        print(f"Output head dtype: {self.out_head.weight.dtype}, Input dtype: {x.dtype}")
-        logits = self.out_head(x.to(self.cfg["dtype"]))
-        # logits = self.out_head(x)
+        # logits = self.out_head(x.to(self.cfg["dtype"]))
+        logits = self.out_head(x)
         return logits
 
 
@@ -356,9 +344,6 @@ def test_grouped_query_attention():
     
     self_attention = SelfAttention(model_args)
     
-    # print(f"GroupedQueryAttention output shape: {output_self_attn.shape}")
-    # print(f"SelfAttention output shape: {custom_output_self_attn.shape}")
-    
     
     assert attention.W_query.weight.shape == self_attention.q_proj.weight.shape, "Query projection weights do not match"
     assert attention.W_key.weight.shape == self_attention.k_proj.weight.shape, "Key projection weights do not match"
@@ -428,10 +413,6 @@ def test_gqa_rms_norm():
     from src.module import SelfAttention
     
     self_attention = SelfAttention(model_args)
-    
-    # print(f"GroupedQueryAttention output shape: {output_self_attn.shape}")
-    # print(f"SelfAttention output shape: {custom_output_self_attn.shape}")
-    
     
     assert attention.W_query.weight.shape == self_attention.q_proj.weight.shape, "Query projection weights do not match"
     assert attention.W_key.weight.shape == self_attention.k_proj.weight.shape, "Key projection weights do not match"
@@ -569,8 +550,6 @@ def test_block():
     output_block = block(x, mask, cos, sin)
     custom_block_output_block = custom_block(x, mask)
     
-    print(f"type compare: {output_block.dtype}, {custom_block_output_block.dtype}")
-    
     assert output_block.shape == custom_block_output_block.shape, f"Shape mismatch: {output_block.shape} != {custom_block_output_block.shape}"
     assert torch.allclose(output_block, custom_block_output_block, atol=1e-5), "Output values do not match between TransformerBlock and custom EncoderBlock"    
 
@@ -632,11 +611,7 @@ def test_causal_lm():
     
     num_tokens = 10
     x = torch.randint(0, model_args.n_vocab, (model_args.max_batch_size, num_tokens))  # (batch_size, num_tokens)
-    print(f"Input shape: {x.shape}")
 
-    for name, param in gt_model.named_parameters():
-        print(f"Parameter: {name}, Type: {param.dtype}")
-    
     logits = gt_model(x)
     custom_logits = custom_model(x)
     
