@@ -65,6 +65,12 @@ class SelfAttention(nn.Module):
         # pe = positional_encoding(L, D)
         # x += pe.unsqueeze(0)
 
+        self.q_proj = self.q_proj.to(self.dtype)
+        self.k_proj = self.k_proj.to(self.dtype)
+        self.v_proj = self.v_proj.to(self.dtype)
+        self.o_proj = self.o_proj.to(self.dtype)
+
+
         # [B, L, D] --> [B, L, D]
         q: torch.Tensor = self.q_proj(x)
         # [B, L, D] --> [B, L, D_kv], D_kv may smaller than D (MQA or GQA)
@@ -84,11 +90,8 @@ class SelfAttention(nn.Module):
         
         # Qk rms_norm
         if self.qk_rms_norm:
-            # ! The two lines below cause a 1e-5 error in test [ununderstandable]
-            # q = self.q_norm(q)
-            # k = self.k_norm(k)
-            q = RMSNorm(self.d_head, eps=1e-6)(q)
-            k = RMSNorm(self.d_head, eps=1e-6)(k)
+            q = self.q_norm(q)
+            k = self.k_norm(k)
         
         # RoPE
         q = self.custom_rope(q) # (B, n_heads, L, d_head)
@@ -126,6 +129,10 @@ class FeedForward(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.to(self.tensor_type)
+        
+        self.gate_proj = self.gate_proj.to(self.tensor_type)
+        self.up_proj = self.up_proj.to(self.tensor_type)
+        self.down_proj = self.down_proj.to(self.tensor_type)
         
         # [B, L, D] --> [B, L, hD]
         x1, x2 = F.silu(self.gate_proj(x)), self.up_proj(x)
