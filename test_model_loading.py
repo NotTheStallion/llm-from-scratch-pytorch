@@ -142,7 +142,7 @@ def load_custom_and_gt_model():
         "qk_norm": True,                 # Whether to normalize queries and values in GQA
         "n_kv_groups": 8,                # Key-Value groups for grouped-query attention
         "rope_base": 1_000_000.0,        # The base in RoPE's "theta"
-        "dtype": torch.bfloat16,         # Lower-precision dtype to reduce memory usage
+        "dtype": torch.float32,         # Lower-precision dtype to reduce memory usage
     }
     
     torch.manual_seed(123)
@@ -196,13 +196,56 @@ def load_custom_and_gt_model():
 
 
 def main_test():
-    model_name = "Qwen3-0.6B"
-    model_dir = Path(f"checkpoints/{model_name}")
-    model_dir = Path("checkpoints/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca")
-    model, model_name, model_args = load_model(model_name, model_dir, strict=True)
+    import json
+    import os
+    from pathlib import Path
+    from safetensors.torch import load_file
+    from huggingface_hub import hf_hub_download, snapshot_download
+
+    QWEN3_CONFIG = {
+        "vocab_size": 151_936,           # Vocabulary size
+        "context_length": 40_960,        # Context length that was used to train the model
+        "emb_dim": 1024,                 # Embedding dimension
+        "n_heads": 16,                   # Number of attention heads
+        "n_layers": 28,                  # Number of layers
+        "hidden_dim": 3072,              # Size of the intermediate dimension in FeedForward
+        "head_dim": 128,                 # Size of the heads in GQA
+        "qk_norm": True,                 # Whether to normalize queries and values in GQA
+        "n_kv_groups": 8,                # Key-Value groups for grouped-query attention
+        "rope_base": 1_000_000.0,        # The base in RoPE's "theta"
+        "dtype": torch.float32,         # Lower-precision dtype to reduce memory usage
+    }
     
-    # Load the model using Hugging Face
-    hf_model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B", torch_dtype="auto", trust_remote_code=True, cache_dir="checkpoints")
+    
+    
+    
+    model_name = "Qwen3-0.6B"
+    repo_id = "Qwen/Qwen3-0.6B"
+    local_dir = "checkpoints"
+    weights_file = hf_hub_download(
+        repo_id=repo_id,
+        filename="model.safetensors",
+        local_dir=local_dir,
+    )
+    
+    print(f"Loading model from {weights_file}")
+    
+    
+    # model_dir = Path(f"checkpoints/{model_name}")
+    model_dir = Path(weights_file).parent
+    model, model_name, model_args = load_model(model_name, model_dir, strict=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+            repo_id, trust_remote_code=True
+        )
+    tokenizer.pad_token = tokenizer.eos_token
+    
+    # Load the GT model
+    gt_model = Qwen3Model(QWEN3_CONFIG)
+
+    weights_dict = load_file(weights_file)
+
+    load_weights_into_qwen(gt_model, QWEN3_CONFIG, weights_dict)
+    gt_model.to("cpu")
     
     # for name, param in model.named_parameters():
     #     if "lm_head.weight" in name:
@@ -211,38 +254,54 @@ def main_test():
     # for name, hf_param in hf_model.named_parameters():
     #     if "lm_head.weight" in name:
     #         print(f"Hugging Face model parameter: {name}, shape: {hf_param.shape}")
+
     
     # Compare the names and shapes of parameters
     model_params = {name: param.shape for name, param in model.named_parameters()}
-    hf_model_params = {name: hf_param.shape for name, hf_param in hf_model.named_parameters()}
+    gt_model_params = {name: hf_param.shape for name, hf_param in gt_model.named_parameters()}
+
+    param_match = {"trf_blocks": "model.layers", "att": "self_attn", "scale": "weight", "ff": "mlp",
+                   "W_query": "q_proj", "W_key": "k_proj", "W_value": "v_proj", "out_proj": "o_proj", "q_norm": "q_norm", "k_norm": "k_norm",
+                   "fc1": "gate_proj", "fc2": "up_proj", "fc3": "down_proj", "norm1": "input_layernorm", "norm2": "post_attention_layernorm",
+                   "final_norm": ".norm", "out_head": "lm_head", "tok_emb": "embed_tokens"}
     
-    for name, shape in model_params.items():
-        if name in hf_model_params:
-            if shape != hf_model_params[name]:
-                print(f"Parameter '{name}' shape mismatch: {shape} vs {hf_model_params[name]}")
-        elif "lm_head.weight" in name:
-            print(f"Parameter '{name}' not found in Hugging Face model, but it is a lm_head.weight. Copy of {hf_model_params['model.embed_tokens.weight']} will be used.")
-        else:
-            print(f"Parameter '{name}' not found in Hugging Face model.")
+    for name, shape in gt_model_params.items():
+        # Modify parameter names using param_match dictionary
+        modified_name = name
+        for custom_key, hf_key in param_match.items():
+            modified_name = modified_name.replace(custom_key, hf_key)
+
+        # print(modified_name, shape)
+
+        found = False
+        for param_name in model_params:
+            if modified_name in param_name:
+                assert model_params[param_name] == shape, f"Shape mismatch for {modified_name}: {model_params[param_name]} != {shape}"
+                found = True
+                
+        
+        if not found:
+            raise ValueError(f"Parameter '{modified_name}' not found in custom model parameters.")
     
-    # for name in hf_model_params.keys():
-    #     if name not in model_params:
-    #         print(f"Parameter '{name}' not found in custom model.")
+
+    # for name, shape in model_params.items():
+    #     print(name, shape)
     
-    
+    print("Comparing parameter names and shapes ... OK")
     
     
     # Checking values
-    for name, param in model.named_parameters():
-        if "lm_head.weight" not in name:
-            hf_param = hf_model.get_parameter(name)
-            if not torch.allclose(param.float(), hf_param.float(), atol=1e-5):
-                print(f"Checking parameter: {name}, shape: {param.shape}, hf shape: {hf_param.shape}")
-                print(f"Parameter '{name}' values do not match between custom model and Hugging Face model.")
-        else:
-            lm_head_weight = hf_model.get_parameter("model.embed_tokens.weight")
-            if not torch.allclose(param.float(), lm_head_weight.float(), atol=1e-5):
-                print(f"Parameter '{name}' values do not match between custom model and Hugging Face model.")
+    for name, shape in gt_model_params.items():
+        # Modify parameter names using param_match dictionary
+        modified_name = name
+        for custom_key, hf_key in param_match.items():
+            modified_name = modified_name.replace(custom_key, hf_key)
+
+        for param_name, param_value in model.named_parameters():
+            if modified_name in param_name:
+                assert torch.allclose(param_value, gt_model.state_dict()[name], atol=1e-5), \
+                    f"Value mismatch for {modified_name}"
+    
 
     print("Comparing parameter values ... OK")
     
@@ -267,7 +326,7 @@ def test_inference():
         "qk_norm": True,                 # Whether to normalize queries and values in GQA
         "n_kv_groups": 8,                # Key-Value groups for grouped-query attention
         "rope_base": 1_000_000.0,        # The base in RoPE's "theta"
-        "dtype": torch.bfloat16,         # Lower-precision dtype to reduce memory usage
+        "dtype": torch.float32,         # Lower-precision dtype to reduce memory usage
     }
     
     
@@ -310,6 +369,10 @@ def test_inference():
     input_ids = tokenizer(prompt, return_tensors="pt")["input_ids"].to("cpu")
     
     print(input_ids)
+    
+    num_tokens = input_ids.shape[1]
+    input_ids = torch.randint(0, model_args.n_vocab, (model_args.max_batch_size, num_tokens))  # (batch_size, num_tokens)
+    
     # print(gt_model.forward(input_ids))
     gt_logits = gt_model.forward(input_ids)
     print(f"Hugging Face logits shape: {gt_logits.shape}")
@@ -317,18 +380,31 @@ def test_inference():
     logits = model.forward(input_ids)
     print(f"Custom model logits shape: {logits.shape}")
     
+    # Compare logits from both models
+    assert gt_logits.shape == logits.shape, "Logits shape mismatch between models"
+
+    logits_diff = torch.abs(gt_logits - logits)
+    avg_logits_diff = torch.mean(logits_diff).item()
+    min_logits_diff = torch.min(logits_diff).item()
+    max_logits_diff = torch.max(logits_diff).item()
+
+    print(f"Average difference in logits: {avg_logits_diff}")
+    print(f"Minimum difference in logits: {min_logits_diff}")
+    print(f"Maximum difference in logits: {max_logits_diff}")
+    
+    
     # Take the last logits vector and apply softmax
-    hf_probs = torch.softmax(gt_logits[0, -1], dim=-1)
+    gt_probs = torch.softmax(gt_logits[0, -1], dim=-1)
     custom_probs = torch.softmax(logits[0, -1], dim=-1)
     
-    print(hf_probs[:10])  # Print the first 10 probabilities from Hugging Face model
+    print(gt_probs[:10])  # Print the first 10 probabilities from Hugging Face model
     print(custom_probs[:10])  # Print the first 10 probabilities from custom model
     
     # Compute the average difference, min, and max in probabilities for all logits
-    hf_probs_all = torch.softmax(gt_logits, dim=-1)
+    gt_probs_all = torch.softmax(gt_logits, dim=-1)
     custom_probs_all = torch.softmax(logits, dim=-1)
     
-    diff = torch.abs(hf_probs_all - custom_probs_all)
+    diff = torch.abs(gt_probs_all - custom_probs_all)
     avg_diff = torch.mean(diff).item()
     min_diff = torch.min(diff).item()
     max_diff = torch.max(diff).item()
@@ -342,6 +418,6 @@ def test_inference():
 
 
 if __name__ == "__main__":
-    # main_test()
+    main_test()
     test_inference()
     # load_custom_and_gt_model()
