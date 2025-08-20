@@ -64,6 +64,8 @@ class CausalLM(nn.Module):
             h = layer(h, mask)  # [B, L, D] --> [B, L, D]
         h = self.model["norm"](h)  # [B, L, D] --> [B, L, D]
         h = h.to(self.dtype)
+        
+        self.lm_head = self.lm_head.to(self.dtype)
 
         logits = self.lm_head(h)  # [B, L, D] --> [B, L, n_vocab]
         return logits
