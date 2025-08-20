@@ -282,6 +282,8 @@ def test_rope():
     mean_diff = torch.mean(torch.abs(x_rotated - custom_rotated)).item()
     assert torch.allclose(x_rotated, custom_rotated, atol=1e-5), f"Values mismatch between x_rotated and custom_rotated. Mean difference: {mean_diff}"
     
+    del rotary
+    
     print("RoPE test ... OK")
 
 
@@ -299,6 +301,8 @@ def test_rms_norm():
 
     assert output.shape == output_custom.shape, f"Shape mismatch: {output.shape} != {output_custom.shape}"
     assert torch.allclose(output, output_custom, atol=1e-5), "Output values do not match between custom RMSNorm and PyTorch RMSNorm"
+    
+    del rms_norm, custom_rms_norm
     
     print("RMSNorm test ... OK")
 
@@ -367,6 +371,8 @@ def test_grouped_query_attention():
     print(f"Self-attn Output std difference: {torch.std(torch.abs(output_self_attn - custom_output_self_attn)).item()}")
     
     assert torch.allclose(output_self_attn, custom_output_self_attn, atol=1e-5), "Output values do not match between GroupedQueryAttention and SelfAttention"
+    
+    del attention, self_attention
     
     print("GroupedQueryAttention test ... OK")
     
@@ -437,6 +443,8 @@ def test_gqa_rms_norm():
     
     assert torch.allclose(output_self_attn, custom_output_self_attn, atol=1e-5), "Output values do not match between GroupedQueryAttention and SelfAttention"
     
+    del attention, self_attention
+    
     print("GroupedQueryAttention RMSNorm test ... OK")
 
 
@@ -488,6 +496,8 @@ def test_mlp():
     
     assert output_mlp.shape == custom_output_mlp.shape, f"Shape mismatch: {output_mlp.shape} != {custom_output_mlp.shape}"
     assert torch.allclose(output_mlp, custom_output_mlp, atol=1e-5), "Output values do not match between FeedForward and custom FeedForward"
+    
+    del mlp, custom_mlp
     
     print("FeedForward test ... OK")
 
@@ -552,6 +562,8 @@ def test_block():
     
     assert output_block.shape == custom_block_output_block.shape, f"Shape mismatch: {output_block.shape} != {custom_block_output_block.shape}"
     assert torch.allclose(output_block, custom_block_output_block, atol=1e-5), "Output values do not match between TransformerBlock and custom EncoderBlock"    
+
+    del block, custom_block
 
     print("TransformerBlock test ... OK")
 
@@ -623,6 +635,8 @@ def test_causal_lm():
     print(f"Logits std difference: {torch.std(torch.abs(logits - custom_logits)).item()}")  
     
     assert torch.allclose(logits, custom_logits, atol=1e-5), "Output values do not match between Qwen3Model and CausalLM"
+    
+    del gt_model, custom_model
     
     print(f"Full Model test ... OK")
 
