@@ -9,7 +9,7 @@ from collections import OrderedDict
 
 sys.path.append(str(Path(__file__).parent))
 
-from model_args import ModelArgs
+from model_args import ModelArgs, get_dtype
 from module import EncoderBlock
 from utils import load_model_state_dict
 
@@ -31,19 +31,21 @@ class CausalLM(nn.Module):
         self.norm_eps = args.norm_eps
         self.max_batch_size = args.max_batch_size
         self.max_seq_len = args.max_seq_len
+        
+        self.dtype = get_dtype(args.d_type)
 
         self.model = nn.ModuleDict(
             OrderedDict(
                 {
-                    "embed_tokens": nn.Embedding(self.n_vocab, self.dim),
+                    "embed_tokens": nn.Embedding(self.n_vocab, self.dim, dtype=self.dtype),
                     "layers": nn.ModuleList(
                         [EncoderBlock(args) for _ in range(self.n_layers)]
                     ),
-                    "norm": nn.RMSNorm(args.dim, eps=args.norm_eps),
+                    "norm": nn.RMSNorm(args.dim, eps=args.norm_eps, dtype=self.dtype),
                 }
             )
         )
-        self.lm_head = nn.Linear(self.dim, self.n_vocab, bias=False)
+        self.lm_head = nn.Linear(self.dim, self.n_vocab, bias=False, dtype=self.dtype)
 
     def forward(self, tokens: torch.Tensor, mask=None) -> torch.Tensor:
         assert tokens.ndim <= 2
@@ -61,6 +63,7 @@ class CausalLM(nn.Module):
         for layer in self.model["layers"]:
             h = layer(h, mask)  # [B, L, D] --> [B, L, D]
         h = self.model["norm"](h)  # [B, L, D] --> [B, L, D]
+        h = h.to(self.dtype)
 
         logits = self.lm_head(h)  # [B, L, D] --> [B, L, n_vocab]
         return logits
