@@ -120,7 +120,7 @@ class GroupedQueryAttention(nn.Module):
             self.q_norm = self.k_norm = None
 
     def forward(self, x, mask, cos, sin):
-        # * added line
+        # * added 
         x = x.to(self.dtype)  # Ensure input is in the same dtype as the
         
         b, num_tokens, d = x.shape
@@ -128,6 +128,11 @@ class GroupedQueryAttention(nn.Module):
         # x = x.to(self.dtype)  # Ensure input is in the same dtype as the weights
 
         # Apply projections
+        self.W_query = self.W_query.to(self.dtype)
+        self.W_key = self.W_key.to(self.dtype)
+        self.W_value = self.W_value.to(self.dtype)
+        self.out_proj = self.out_proj.to(self.dtype)
+        
         queries = self.W_query(x)  # (b, num_tokens, num_heads * head_dim)
         keys = self.W_key(x)       # (b, num_tokens, num_kv_groups * head_dim)
         values = self.W_value(x)   # (b, num_tokens, num_kv_groups * head_dim)
@@ -242,6 +247,7 @@ class Qwen3Model(nn.Module):
         
         # * Ensure the output head is in the same dtype as the input
         # logits = self.out_head(x.to(self.cfg["dtype"]))
+        self.out_head = self.out_head.to(self.cfg["dtype"])
         logits = self.out_head(x)
         return logits
 
@@ -359,6 +365,10 @@ def test_grouped_query_attention():
     attention.W_key.weight.data = self_attention.k_proj.weight.data
     attention.W_value.weight.data = self_attention.v_proj.weight.data
     attention.out_proj.weight.data = self_attention.o_proj.weight.data
+    if model_args.qk_rms_norm:
+        attention.q_norm.scale.data = self_attention.q_norm.weight.data
+        attention.k_norm.scale.data = self_attention.k_norm.weight.data
+    
     
     output_self_attn = attention(x, mask, cos, sin)
     custom_output_self_attn = self_attention(x, mask)
@@ -430,6 +440,9 @@ def test_gqa_rms_norm():
     attention.W_key.weight.data = self_attention.k_proj.weight.data
     attention.W_value.weight.data = self_attention.v_proj.weight.data
     attention.out_proj.weight.data = self_attention.o_proj.weight.data
+    if model_args.qk_rms_norm:
+        attention.q_norm.scale.data = self_attention.q_norm.weight.data
+        attention.k_norm.scale.data = self_attention.k_norm.weight.data
     
     output_self_attn = attention(x, mask, cos, sin)
     custom_output_self_attn = self_attention(x, mask)
@@ -552,9 +565,13 @@ def test_block():
     block.att.W_key.weight.data = custom_block.self_attn.k_proj.weight.data
     block.att.W_value.weight.data = custom_block.self_attn.v_proj.weight.data
     block.att.out_proj.weight.data = custom_block.self_attn.o_proj.weight.data
+    block.att.q_norm.scale.data = custom_block.self_attn.q_norm.weight.data
+    block.att.k_norm.scale.data = custom_block.self_attn.k_norm.weight.data
     block.ff.fc1.weight.data = custom_block.mlp.gate_proj.weight.data
     block.ff.fc2.weight.data = custom_block.mlp.up_proj.weight.data
     block.ff.fc3.weight.data = custom_block.mlp.down_proj.weight.data
+    block.norm1.scale.data = custom_block.input_layernorm.weight.data
+    block.norm2.scale.data = custom_block.post_attention_layernorm.weight.data
     
     
     output_block = block(x, mask, cos, sin)
@@ -618,6 +635,11 @@ def test_causal_lm():
         gt_model.trf_blocks[i].ff.fc1.weight.data = custom_model.model.layers[i].mlp.gate_proj.weight.data
         gt_model.trf_blocks[i].ff.fc2.weight.data = custom_model.model.layers[i].mlp.up_proj.weight.data
         gt_model.trf_blocks[i].ff.fc3.weight.data = custom_model.model.layers[i].mlp.down_proj.weight.data
+        gt_model.trf_blocks[i].norm1.scale.data = custom_model.model.layers[i].input_layernorm.weight.data
+        gt_model.trf_blocks[i].norm2.scale.data = custom_model.model.layers[i].post_attention_layernorm.weight.data
+        gt_model.trf_blocks[i].att.q_norm.scale.data = custom_model.model.layers[i].self_attn.q_norm.weight.data
+        gt_model.trf_blocks[i].att.k_norm.scale.data = custom_model.model.layers[i].self_attn.k_norm.weight.data
+    gt_model.final_norm.scale.data = custom_model.model.norm.weight.data
     gt_model.out_head.weight.data = custom_model.lm_head.weight.data
 
     
