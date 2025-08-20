@@ -125,8 +125,6 @@ class FeedForward(nn.Module):
         self.down_proj = nn.Linear(self.hidden_dim, self.dim, bias=False, dtype=self.tensor_type)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # print(f"types ff {self.gate_proj.weight.dtype}, {x.dtype}")
-        
         x = x.to(self.tensor_type)
         
         # [B, L, D] --> [B, L, hD]
