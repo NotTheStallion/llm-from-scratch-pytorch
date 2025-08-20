@@ -29,13 +29,27 @@ def load_model(
 
 
 if __name__ == "__main__":
+    from huggingface_hub import hf_hub_download
+    
     model_name = "Qwen3-0.6B"
-    model_dir = Path(f"checkpoints/{model_name}")
-    model_dir = Path("checkpoints/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca")
+    repo_id = "Qwen/Qwen3-0.6B"
+    local_dir = "checkpoints"
+    weights_file = hf_hub_download(
+        repo_id=repo_id,
+        filename="model.safetensors",
+        local_dir=local_dir,
+    )
+    
+    print(f"Loading model from {weights_file}")
+    
+    
+    # model_dir = Path(f"checkpoints/{model_name}")
+    model_dir = Path(weights_file).parent
     model, model_name, model_args = load_model(model_name, model_dir, strict=True)
     tokenizer = AutoTokenizer.from_pretrained(
-            "Qwen/Qwen3-0.6B", trust_remote_code=True
+            repo_id, trust_remote_code=True
         )
+    tokenizer.pad_token = tokenizer.eos_token
 
     if model_args.n_vocab != len(tokenizer):
                 print(
@@ -58,10 +72,12 @@ if __name__ == "__main__":
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": prompt}
     ]
-    prompt = tokenizer.apply_chat_template(messages)
+    # prompt = tokenizer.apply_chat_template(messages)
     
-    print("="*20)
-    print(f"Prompt: {tokenizer.decode(prompt)}")
+    # print("="*20)
+    # print(f"Prompt: {tokenizer.decode(prompt)}")
+    
+    prompt = tokenizer(prompt, return_tensors="pt")["input_ids"].squeeze(0).tolist()
     
     # inputs = tokenizer(prompt, return_tensors="pt")
     # input_ids = inputs["input_ids"]
